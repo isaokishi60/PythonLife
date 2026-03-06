@@ -1,0 +1,34 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+
+# 仮想環境
+venv/
+venv311/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VSCode
+.vscode/
+
+# データ
+*.xlsx
+*.xls
+*.csv
+
+# 画像
+*.png
+*.jpg
+*.jpeg
+
+# 出力
+output/
+outputs/
+temp/
+tmp/
+
+# OS
+Thumbs.db
+.DS_Store
