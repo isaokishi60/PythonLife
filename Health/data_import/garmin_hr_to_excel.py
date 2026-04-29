@@ -1,3 +1,6 @@
+# "C:\Users\spax2\OneDrive\ドキュメント\PythonWork\Health\01_Garmin_Import\outputs\RestHR_2026-03-13_week.xlsx"
+# その日の心拍数の0:00から07:30までの２分毎のデータを作る
+
 from __future__ import annotations
 
 import os
@@ -6,12 +9,18 @@ import json
 import argparse
 from pathlib import Path
 from datetime import datetime, date, timedelta, time
+import time as pytime
 
 import pandas as pd
 
 try:
+    import matplotlib
+    matplotlib.use("Agg")  # PNG 保存専用バックエンド（import 前に必須）
+    import matplotlib.backends.backend_agg  # ★ Agg backend を強制ロード
     import matplotlib.pyplot as plt
+    plt.switch_backend("Agg")  # ★ 念のため完全固定
 except Exception:
+    matplotlib = None
     plt = None
 
 
@@ -36,15 +45,18 @@ def safe_sheet_name(name: str) -> str:
         name = name.replace(ch, "_")
     return name[:31]
 
-
+# plt.ylabel("bpm")
 # =========================
 # 2) Garmin
 # =========================
-def get_garmin_client(email: str | None, password: str | None):
+
+def get_garmin_client(email: str | None, password: str | None, max_retries=5):
     try:
         from garminconnect import Garmin
     except Exception as e:
-        raise RuntimeError("garminconnect が import できません。venv311で `pip install garminconnect` を確認してください。") from e
+        raise RuntimeError(
+            "garminconnect が import できません。venv311で `pip install garminconnect` を確認してください。"
+        ) from e
 
     if not email:
         email = os.environ.get("GARMIN_EMAIL")
@@ -54,12 +66,36 @@ def get_garmin_client(email: str | None, password: str | None):
     if not email or not password:
         raise RuntimeError(
             "Garminログイン情報がありません。\n"
-            "環境変数 GARMIN_EMAIL / GARMIN_PASSWORD を設定してから実行してください。"
+            "環境変数 GARMIN_EMAIL / GARMIN_PASSWORD を設定してください。"
         )
 
     g = Garmin(email, password)
-    g.login()
-    return g
+
+    # -------------------------
+    # 429 対策：ログインをリトライ
+    # -------------------------
+    for i in range(max_retries):
+        try:
+            g.login()
+            return g  # 成功したら返す
+
+        except Exception as e:
+            msg = str(e)
+
+            # 429 の場合
+            if "429" in msg or "Too Many Requests" in msg:
+                # Exponential Backoff（Garmin は Retry-After を返さないことが多い）
+                wait = (2 ** i) + 1
+                print(f"Garmin 429: {wait} 秒待機して再試行します ({i+1}/{max_retries})")
+                pytime.sleep(wait)
+                continue
+
+            # 429 以外のエラーは即終了
+            raise
+
+    raise RuntimeError("Garminログインがレート制限で失敗しました。時間を空けて再実行してください。")
+
+
 
 
 def fetch_heart_rates(g, d: date) -> dict:
@@ -150,6 +186,7 @@ def night_window_from_two_days(df_two: pd.DataFrame, target_date: date, start_h:
 
 def save_night_png_from_two_days(df_two: pd.DataFrame, target_date: date, out_png: Path, start_h: int = 21, end_h: int = 6):
     if plt is None:
+        log_print("[WARN] matplotlib がインストールされていないため PNG をスキップします")    
         return
 
     df_n, start_dt, end_dt = night_window_from_two_days(df_two, target_date, start_h=start_h, end_h=end_h)
@@ -181,12 +218,14 @@ def save_night_png_from_two_days(df_two: pd.DataFrame, target_date: date, out_pn
 # =========================
 # 5) Export
 # =========================
+# --- 省略（あなたのコードそのまま） ---
+
 def export_week(
     g,
     base_date: date,
     out_dir: Path,
     prefix: str = "RestHR",
-    save_png: bool = True,
+    save_png: bool = False,   # ★ PNG をデフォルトで無効化
     night_start_h: int = 21,
     night_end_h: int = 6,
 ) -> Path:
@@ -195,11 +234,9 @@ def export_week(
     if save_png:
         ensure_dir(png_dir)
 
-    # 7日分（古い→新しい）
     dates = [base_date - timedelta(days=i) for i in range(6, -1, -1)]
     xlsx_path = out_dir / f"{prefix}_{base_date.isoformat()}_week.xlsx"
 
-    # 2日分結合用にキャッシュ（同じ日を何度も取りに行かない）
     df_cache: dict[date, pd.DataFrame] = {}
 
     def get_df_for_day(d: date) -> pd.DataFrame:
@@ -217,7 +254,6 @@ def export_week(
         for d in dates:
             log_print(f"[INFO] Fetch HR: {d.isoformat()}")
 
-            # 当日分（Excel用）
             df_today = get_df_for_day(d)
             if df_today.empty:
                 log_print(f"[WARN] No HR data: {d.isoformat()}")
@@ -226,7 +262,6 @@ def export_week(
             df_excel = df_add_time_cols(df_today)
             df_excel.to_excel(writer, sheet_name=safe_sheet_name(d.isoformat()), index=False)
 
-            # 夜間PNG用（前日+当日を結合）
             if save_png and plt is not None:
                 df_prev = get_df_for_day(d - timedelta(days=1))
                 df_two = pd.concat([df_prev, df_today], ignore_index=True)
@@ -237,6 +272,7 @@ def export_week(
                     log_print(f"[WARN] Night PNG failed ({d.isoformat()}): {e}")
 
     return xlsx_path
+
 
 
 # =========================
@@ -255,6 +291,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dump-raw", action="store_true", help="当日の生データjson保存（デバッグ用）")
     return p.parse_args()
 
+# export_week(g, base_date, out_dir, prefix="RestHR")
 
 def main() -> int:
     args = parse_args()
