@@ -1,4 +1,4 @@
-# make_price_file.py
+# GitHubのmake_price_file.py20260425
 # 株価（株式= yfinance / 投信= Yahoo Japan 履歴HTML）を取得して
 # 株価_YYYYMMDD_前営業日終値.xlsx を出力する（Pricesシート）
 
@@ -16,20 +16,35 @@ import yfinance as yf
 # パス設定（OneDrive優先）
 # =========================
 def resolve_base() -> Path:
+    candidates = []
+
     od = os.environ.get("OneDrive")
     if od:
-        p = Path(od) / "有価証券"
+        od = Path(od)
+
+        # OneDrive が C:\Users\spax2\OneDrive の場合
+        candidates.append(od / "有価証券")
+
+        # OneDrive が C:\Users\spax2\OneDrive の親を指す/個人用フォルダが中にある場合
+        candidates.append(od / "功 - 個人用" / "有価証券")
+
+        # OneDrive 自体が「功 - 個人用」まで含んでいる場合にも対応
+        if od.name == "功 - 個人用":
+            candidates.append(od / "有価証券")
+
+    candidates.append(Path(r"O:\有価証券"))
+
+    for p in candidates:
         if p.exists():
             return p
 
-    # フォールバック（OneDrive環境変数が無い等）
-    p2 = Path(r"O:\有価証券")
-    if p2.exists():
-        print("WARNING: OneDrive が見つからないため O:\\有価証券 を使用します")
-        return p2
+    print("確認した候補:")
+    for p in candidates:
+        print(" -", p)
 
     raise EnvironmentError("有価証券フォルダが見つかりません。OneDrive または O: を確認してください。")
 
+# p = Path(od) / "功 - 個人用" / "有価証券"
 
 BASE = resolve_base()
 
