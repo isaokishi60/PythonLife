@@ -23,17 +23,33 @@ BASE = Path(ONEDRIVE) / "有価証券"
 HOLDINGS_PATH = str(BASE / "01_Excel入力" / "残高" / "保有総額.xlsx")
 
 
+import argparse
+
+def ask_target_date() -> date:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
+    args = parser.parse_args()
+
+    if args.date:
+        td = datetime.strptime(args.date, "%Y-%m-%d").date()
+        print("指定日:", td)
+        return td
+
+    print("日付を入力してください（この日の前営業日終値を使います）")
+
+    y = int(input("開始年4桁: ").strip())
+    m = int(input("開始月2桁: ").strip())
+    d = int(input("開始日2桁: ").strip())
+
+    td = date(y, m, d)
+    print("指定日:", td)
+    return td
+
+
 # =========================
 # 設定：対象日
 # =========================
-print("日付を入力してください（この日の前営業日終値を使います）")
-
-Nen_start = input("開始年4桁: ")
-Tuki_start = input("開始月2桁: ")
-Niti_start = input("開始日2桁: ")
-
-TARGET_DATE = date(int(Nen_start), int(Tuki_start), int(Niti_start))
-print("指定日:", TARGET_DATE)
+TARGET_DATE = ask_target_date()
 
 # =========================
 # 株価ファイル検索
@@ -209,7 +225,140 @@ with pd.ExcelWriter(HISTORY_PATH, engine="openpyxl", mode="w") as w:
 
 print("✅ 資産推移Historyを更新しました")
 
+# =========================
+# 証券会社別履歴
+# =========================
 
+BROKER_HISTORY_PATH = (
+    BASE / "01_Excel入力" / "残高" / "資産推移_BrokerHistory.xlsx"
+)
+
+BROKER_HISTORY_SHEET = "BrokerHistory"
+
+ACCOUNT_MASTER_PATH = (
+    BASE / "01_Excel入力" / "マスター" / "口座マスター.xlsx"
+)
+
+BROKER_MASTER_PATH = (
+    BASE / "01_Excel入力" / "マスター" / "証券会社マスター.xlsx"
+)
+
+# =========================
+# マスター読み込み
+# =========================
+
+df_account = pd.read_excel(ACCOUNT_MASTER_PATH)
+df_broker = pd.read_excel(BROKER_MASTER_PATH)
+
+df_account.columns = df_account.columns.astype(str).str.strip()
+df_broker.columns = df_broker.columns.astype(str).str.strip()
+
+# 型統一
+df_account["AccountID"] = df_account["AccountID"].astype(str).str.strip()
+df_account["BrokerID"] = df_account["BrokerID"].astype(str).str.strip()
+
+df_broker["BrokerID"] = df_broker["BrokerID"].astype(str).str.strip()
+
+# =========================
+# 保有データへ BrokerID 付与
+# =========================
+
+tmp = df_merged.merge(
+    df_account[["AccountID", "BrokerID"]],
+    on="AccountID",
+    how="left"
+)
+
+tmp = tmp.merge(
+    df_broker[["BrokerID", "証券会社名"]],
+    on="BrokerID",
+    how="left"
+)
+
+# =========================
+# 証券会社別集計
+# =========================
+
+broker_hist = (
+    tmp.groupby(
+        ["BrokerID", "証券会社名"],
+        as_index=False
+    )[["評価額", "利益"]]
+    .sum()
+)
+
+broker_hist["Date"] = base_dt
+
+broker_hist = broker_hist.rename(columns={
+    "証券会社名": "BrokerName",
+    "評価額": "TotalValue",
+    "利益": "TotalProfit"
+})
+
+broker_hist = broker_hist[
+    ["Date", "BrokerID", "BrokerName", "TotalValue", "TotalProfit"]
+]
+
+# =========================
+# 既存履歴読み込み
+# =========================
+
+if BROKER_HISTORY_PATH.exists():
+    old = pd.read_excel(
+        BROKER_HISTORY_PATH,
+        sheet_name=BROKER_HISTORY_SHEET
+    )
+
+    old.columns = old.columns.astype(str).str.strip()
+
+    if "Date" in old.columns:
+        old["Date"] = pd.to_datetime(old["Date"]).dt.date
+
+else:
+    old = pd.DataFrame(columns=[
+        "Date",
+        "BrokerID",
+        "BrokerName",
+        "TotalValue",
+        "TotalProfit"
+    ])
+
+# =========================
+# 同日削除
+# =========================
+
+if len(old) > 0 and "Date" in old.columns:
+    old = old[old["Date"] != base_dt]
+
+# =========================
+# 追加
+# =========================
+
+new_hist = pd.concat(
+    [old, broker_hist],
+    ignore_index=True
+)
+
+new_hist = new_hist.sort_values(
+    ["Date", "BrokerID"]
+).reset_index(drop=True)
+
+# =========================
+# 保存
+# =========================
+
+with pd.ExcelWriter(
+    BROKER_HISTORY_PATH,
+    engine="openpyxl",
+    mode="w"
+) as w:
+    new_hist.to_excel(
+        w,
+        sheet_name=BROKER_HISTORY_SHEET,
+        index=False
+    )
+
+print("✅ BrokerHistory 更新完了")
 
 # %%
 print(df_merged.columns.tolist())

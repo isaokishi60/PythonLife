@@ -21,17 +21,33 @@ BASE = Path(ONEDRIVE) / "有価証券"
 PRICE_DIR = str(BASE / r"01_Excel入力")
 HOLDINGS_PATH = str(BASE / r"01_Excel入力\残高\保有総額_指定日基準.xlsx")
 
+import argparse
+
+def ask_target_date() -> date:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
+    args = parser.parse_args()
+
+    if args.date:
+        td = datetime.strptime(args.date, "%Y-%m-%d").date()
+        print("指定日:", td)
+        return td
+
+    print("日付を入力してください（この日の前営業日終値を使います）")
+
+    y = int(input("開始年4桁: ").strip())
+    m = int(input("開始月2桁: ").strip())
+    d = int(input("開始日2桁: ").strip())
+
+    td = date(y, m, d)
+    print("指定日:", td)
+    return td
+
+
 # =========================
 # 設定：対象日
 # =========================
-print("日付を入力してください（この日の前営業日終値を使います）")
-
-Nen_start = input("開始年4桁: ")
-Tuki_start = input("開始月2桁: ")
-Niti_start = input("開始日2桁: ")
-
-TARGET_DATE = date(int(Nen_start), int(Tuki_start), int(Niti_start))
-print("指定日:", TARGET_DATE)
+TARGET_DATE = ask_target_date()
 
 # =========================
 # 株価ファイル検索

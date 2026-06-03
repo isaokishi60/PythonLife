@@ -10,6 +10,8 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+import argparse
+
 # =========================
 # パス設定（PC差を吸収）
 # =========================
@@ -73,12 +75,18 @@ def main():
 
     print("=== 指定日の USDJPY を DimFx に追記します ===")
 
-    # 日付入力
-    y = int(input("年(YYYY): "))
-    m = int(input("月(MM): "))
-    d = int(input("日(DD): "))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
+    args = parser.parse_args()
 
-    target_date = datetime(y, m, d).date()
+    if args.date:
+        target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
+    else:
+        y = int(input("年(YYYY): "))
+        m = int(input("月(MM): "))
+        d = int(input("日(DD): "))
+        target_date = datetime(y, m, d).date()
+
     print("指定日:", target_date)
 
     # 為替取得

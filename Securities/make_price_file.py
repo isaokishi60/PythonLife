@@ -4,7 +4,7 @@
 
 import os
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -122,11 +122,23 @@ def normalize_code(x) -> str:
     return s
 
 
+import argparse
+
 def ask_target_date() -> date:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--date", help="対象日 (YYYY-MM-DD)")
+    args = parser.parse_args()
+
+    if args.date:
+        td = datetime.strptime(args.date, "%Y-%m-%d").date()
+        print("指定日:", td)
+        return td
+
     print("日付を入力してください（この日の前営業日終値を取得します）")
     y = int(input("開始年4桁: ").strip())
     m = int(input("開始月2桁: ").strip())
     d = int(input("開始日2桁: ").strip())
+
     td = date(y, m, d)
     print("指定日:", td)
     return td
