@@ -275,6 +275,31 @@ def make_monthly_summary(df: pd.DataFrame) -> pd.DataFrame:
 # 5) グラフ
 # =========================
 
+EVENTS = [
+    ("2026-02-16", "人間ドック", "darkorange", ":"),
+    ("2026-03-19", "カルディオバージョン", "red", "--"),
+    ("2026-05-22", "アブレーション", "darkorange", ":"),
+]
+
+def add_events(ax, y_pos):
+    for d, label, color, style in EVENTS:
+        x = pd.to_datetime(d)
+
+        ax.axvline(
+            x,
+            color=color,
+            linestyle=style,
+            linewidth=2
+        )
+
+        ax.annotate(
+            label,
+            xy=(x, y_pos * 0.92),
+            xytext=(x, y_pos * 1.03),
+            arrowprops=dict(arrowstyle="->"),
+            ha="left"
+        )
+
 def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
     if plt is None:
         return
@@ -289,7 +314,7 @@ def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
 
     # 確定データだけ使う
     d = d.dropna(subset=["日付", "1日総拍動数"]).copy()
-    d = d[d["測定不足"] == 0].copy()
+    #d = d[d["測定不足"] == 0].copy()
     d = d[d["1日総拍動数"] >= 75000].copy()
     d = d.sort_values("日付").copy()
 
@@ -321,13 +346,7 @@ def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
     )
 
     # 処置日
-    plt.axvline(
-        pd.to_datetime("2026-03-19"),
-        color="red",
-        linestyle="--",
-        linewidth=2,
-        label="処置日"
-    )
+
 
     # 全期間平均
     plt.axhline(
@@ -341,6 +360,9 @@ def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.ylabel("拍動数 / 日")
 
     ax = plt.gca()
+
+    add_events(ax, d["1日総拍動数"].max())
+
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=4))
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
     ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:,.0f}"))
@@ -372,13 +394,14 @@ def make_rhr_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.plot(d["日付"], d["安静時心拍数"], label="安静時心拍数")
     plt.plot(d["日付"], d["RHR７日移動平均"], linewidth=2.5, label="7日平均")
 
-    plt.axvline(pd.to_datetime("2026-03-19"), color="red", linestyle="--", linewidth=2, label="処置日")
-
     plt.title("安静時心拍数の推移")
     plt.xlabel("日付")
     plt.ylabel("心拍数 / 分")
 
     ax = plt.gca()
+
+    add_events(ax, d["安静時心拍数"].max())
+
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=4))  # ★追加
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
@@ -400,7 +423,7 @@ def make_tachy_chart(df: pd.DataFrame, fig_path: Path) -> None:
     d["頻脈時間(100bpm以上_分)"] = pd.to_numeric(d["頻脈時間(100bpm以上_分)"], errors="coerce")
     d["測定不足"] = pd.to_numeric(d["測定不足"], errors="coerce")
     d = d.dropna(subset=["日付", "頻脈時間(100bpm以上_分)"]).copy()
-    d = d[d["測定不足"] == 0].copy()
+    #d = d[d["測定不足"] == 0].copy()
     d = d.sort_values("日付")
 
     if d.empty:
@@ -409,13 +432,14 @@ def make_tachy_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.figure(figsize=(11, 6))
     plt.bar(d["日付"], d["頻脈時間(100bpm以上_分)"], label="100bpm以上")
 
-    plt.axvline(pd.to_datetime("2026-03-19"), color="red", linestyle="--", linewidth=2, label="処置日")
-
     plt.title("頻脈時間（100bpm以上）")
     plt.xlabel("日付")
     plt.ylabel("分 / 日")
 
     ax = plt.gca()
+
+    add_events(ax, d["頻脈時間(100bpm以上_分)"].max())
+
     ax.xaxis.set_major_locator(mdates.DayLocator(interval=4))  # ★追加
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
