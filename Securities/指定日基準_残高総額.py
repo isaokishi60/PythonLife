@@ -9,6 +9,8 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+import argparse
+
 # =========================
 # パス設定（PC差を吸収）
 # =========================
@@ -20,8 +22,6 @@ BASE = Path(ONEDRIVE) / "有価証券"
 
 PRICE_DIR = str(BASE / r"01_Excel入力")
 HOLDINGS_PATH = str(BASE / r"01_Excel入力\残高\保有総額_指定日基準.xlsx")
-
-import argparse
 
 def ask_target_date() -> date:
     parser = argparse.ArgumentParser()

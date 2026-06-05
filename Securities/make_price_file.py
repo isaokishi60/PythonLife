@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import requests
 import yfinance as yf
-
+import argparse
 
 # =========================
 # パス設定（OneDrive優先）
@@ -121,8 +121,6 @@ def normalize_code(x) -> str:
     s = re.sub(r"\.0$", "", s)
     return s
 
-
-import argparse
 
 def ask_target_date() -> date:
     parser = argparse.ArgumentParser()
