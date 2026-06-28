@@ -110,21 +110,34 @@ def make_pptx(png_files, start_date, end_date):
     prs.save(PPTX_PATH)
     print("PowerPoint作成完了:", PPTX_PATH)
 
+    return PPTX_PATH
+
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--start-date", required=True)
-    parser.add_argument("--end-date", required=True)
-    args = parser.parse_args()
+    try:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--start-date", required=True)
+        parser.add_argument("--end-date", required=True)
+        args = parser.parse_args()
 
-    png_files = []
+        png_files = []
 
-    for item in [1, 2, 3]:
-        run_graph_script(args.start_date, args.end_date, item)
-        png_path = export_excel_chart_to_png(item)
-        png_files.append((item, png_path))
+        for item in [1, 2, 3]:
+            run_graph_script(args.start_date, args.end_date, item)
+            png_path = export_excel_chart_to_png(item)
+            png_files.append((item, png_path))
 
-    make_pptx(png_files, args.start_date, args.end_date)
+        pptx_path = make_pptx(png_files, args.start_date, args.end_date)
+        os.startfile(pptx_path)
+
+    except Exception as e:
+        import traceback
+
+        log = BASE_HEALTH / "make_health_pptx_error.txt"
+        with open(log, "w", encoding="utf-8") as f:
+            traceback.print_exc(file=f)
+
+        raise
 
 
 if __name__ == "__main__":
