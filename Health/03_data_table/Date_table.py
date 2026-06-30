@@ -9,6 +9,7 @@ from openpyxl.styles import Border, Side
 from openpyxl.styles import Alignment
 from openpyxl.styles import numbers
 
+
 def export_monthly_table(input_path, output_path, sheet_name, item_name):
     rounding_rules = {
         "体重": 1,
@@ -296,7 +297,10 @@ export_monthly_table(
 )
 
 
-# %%
+print(f"出力ファイルを開きます: {output_path}")
+
+# Excelで開く（Pythonは待たずに終了）
+os.startfile(output_path)
 
 
 

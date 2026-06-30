@@ -355,11 +355,21 @@ def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
         label=f"全期間平均 {mean_val:,.0f}"
     )
 
-    plt.title("1日総拍動数の推移")
+    #plt.title("1日総拍動数の推移")
     plt.xlabel("日付")
     plt.ylabel("拍動数 / 日")
 
     ax = plt.gca()
+
+    ax.text(
+        0.01, 0.98,
+        "1日総拍動数の推移",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=14,
+        fontweight="bold"
+    )
 
     add_events(ax, d["1日総拍動数"].max())
 
@@ -368,7 +378,7 @@ def make_beats_chart(df: pd.DataFrame, fig_path: Path) -> None:
     ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:,.0f}"))
 
     plt.xticks(rotation=90, fontsize=8)
-    plt.legend(loc="upper left")
+    plt.legend(loc="upper left", bbox_to_anchor=(0.01, 0.90))
     plt.tight_layout()
     plt.savefig(fig_path, dpi=160)
     plt.close()
@@ -394,11 +404,21 @@ def make_rhr_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.plot(d["日付"], d["安静時心拍数"], label="安静時心拍数")
     plt.plot(d["日付"], d["RHR７日移動平均"], linewidth=2.5, label="7日平均")
 
-    plt.title("安静時心拍数の推移")
+    #plt.title("安静時心拍数の推移")
     plt.xlabel("日付")
     plt.ylabel("心拍数 / 分")
 
     ax = plt.gca()
+
+    ax.text(
+        0.01, 0.98,
+        "安静時心拍数の推移",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=14,
+        fontweight="bold"
+    )
 
     add_events(ax, d["安静時心拍数"].max())
 
@@ -406,7 +426,7 @@ def make_rhr_chart(df: pd.DataFrame, fig_path: Path) -> None:
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
     plt.xticks(rotation=90, fontsize=8)
-    plt.legend(loc="upper left")
+    plt.legend(loc="upper left", bbox_to_anchor=(0.01, 0.90))
     plt.tight_layout()
     plt.savefig(fig_path, dpi=160)
     plt.close()
@@ -432,11 +452,21 @@ def make_tachy_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.figure(figsize=(11, 6))
     plt.bar(d["日付"], d["頻脈時間(100bpm以上_分)"], label="100bpm以上")
 
-    plt.title("頻脈時間（100bpm以上）")
+    #plt.title("頻脈時間（100bpm以上）")
     plt.xlabel("日付")
     plt.ylabel("分 / 日")
 
     ax = plt.gca()
+
+    ax.text(
+        0.01, 0.98,
+        "頻脈時間（100bpm以上）",
+        transform=ax.transAxes,
+        ha="left",
+        va="top",
+        fontsize=14,
+        fontweight="bold"
+    )
 
     add_events(ax, d["頻脈時間(100bpm以上_分)"].max())
 
@@ -444,11 +474,10 @@ def make_tachy_chart(df: pd.DataFrame, fig_path: Path) -> None:
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%m-%d"))
 
     plt.xticks(rotation=90, fontsize=8)
-    plt.legend(loc="upper left")
+    plt.legend(loc="upper left", bbox_to_anchor=(0.01, 0.90))
     plt.tight_layout()
     plt.savefig(fig_path, dpi=160)
     plt.close()
-
 
 # =========================
 # 6) 期間取得
