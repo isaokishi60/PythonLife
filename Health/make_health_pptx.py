@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import argparse
 import subprocess
 from pathlib import Path
@@ -17,6 +18,9 @@ ITEMS = {
     1: "体重",
     2: "血糖値",
     3: "血圧・心拍数",
+    4: "中程度運動量",
+    5: "運動消費エネルギー",
+    6: "歩数"
 }
 
 
@@ -60,26 +64,53 @@ def export_excel_chart_to_png(item):
     excel = win32com.client.DispatchEx("Excel.Application")
     excel.Visible = False
     excel.DisplayAlerts = False
+    excel.ScreenUpdating = True
+
+    wb = None
 
     try:
-        wb = excel.Workbooks.Open(str(EXCEL_PATH))
+        wb = excel.Workbooks.Open(str(EXCEL_PATH), UpdateLinks=0, ReadOnly=True)
+        time.sleep(5)
+
         ws = wb.Worksheets("Sheet3")
+        ws.Activate()
 
         charts = ws.ChartObjects()
+        print("ChartObjects Count:", charts.Count)
+
         if charts.Count == 0:
             raise RuntimeError("Sheet3 にグラフがありません")
+        
+        time.sleep(5)
 
-        chart = charts.Item(1).Chart
-        chart.Export(str(png_path))
+        for retry in range(10):
+            try:
+                excel.CalculateFullRebuild()
+                excel.CalculateUntilAsyncQueriesDone()
+                time.sleep(1)
 
-        wb.Close(SaveChanges=False)
+                chart_obj = ws.ChartObjects(1)
+                chart_obj.Activate()
+
+                chart = chart_obj.Chart
+                chart.Export(str(png_path))
+
+                if png_path.exists():
+                    break
+
+            except Exception as e:
+                print(f"グラフPNG出力リトライ {retry + 1}/10:", repr(e))
+                time.sleep(5)
+        else:
+            raise RuntimeError(f"グラフPNG出力に失敗しました: item={item}")
 
     finally:
+        if wb is not None:
+            wb.Close(SaveChanges=False)
         excel.Quit()
 
     print("PNG保存:", png_path)
     return png_path
-
 
 def add_slide(prs, title, png_path):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -96,7 +127,6 @@ def add_slide(prs, title, png_path):
         Inches(0.9),
         width=Inches(9.0),
     )
-
 
 def make_pptx(png_files, start_date, end_date):
     prs = Presentation()
@@ -122,7 +152,7 @@ def main():
 
         png_files = []
 
-        for item in [1, 2, 3]:
+        for item in ITEMS.keys():
             run_graph_script(args.start_date, args.end_date, item)
             png_path = export_excel_chart_to_png(item)
             png_files.append((item, png_path))
