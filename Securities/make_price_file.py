@@ -398,4 +398,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+        print("正常終了")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise

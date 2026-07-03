@@ -182,7 +182,7 @@ OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 with pd.ExcelWriter(OUT_PATH, engine="openpyxl", mode="w") as w:
     hist10.to_excel(w, sheet_name=TOP10_SHEET, index=False)
 
-print("✅ Top10History を一括生成しました:", str(OUT_PATH))
+print("Top10History を一括生成しました:", str(OUT_PATH))
 print("Sheet:", TOP10_SHEET)
 print("last 10 rows:")
 print(hist10.tail(10).to_string(index=False))

@@ -167,7 +167,7 @@ df_merged["利益"] = df_merged["利益"].astype("Int64")
 with pd.ExcelWriter(balance_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
     df_merged.to_excel(w, sheet_name="保有総額", index=False)
 
-print("✅ 保有総額.xlsx を更新しました。")
+print("保有総額.xlsx を更新しました。")
 
 # =========================
 #履歴追記コード　2026/02/19
@@ -222,7 +222,7 @@ hist = hist.sort_values("Date").reset_index(drop=True)
 with pd.ExcelWriter(HISTORY_PATH, engine="openpyxl", mode="w") as w:
     hist.to_excel(w, sheet_name=HISTORY_SHEET, index=False)
 
-print("✅ 資産推移Historyを更新しました")
+print("資産推移Historyを更新しました")
 
 # =========================
 # 証券会社別履歴 BrokerHistory 更新
@@ -304,7 +304,7 @@ new_hist = new_hist.sort_values(["Date", "BrokerID"]).reset_index(drop=True)
 with pd.ExcelWriter(BROKER_HISTORY_PATH, engine="openpyxl", mode="w") as w:
     new_hist.to_excel(w, sheet_name=BROKER_HISTORY_SHEET, index=False)
 
-print("✅ BrokerHistory 更新完了")
+print("BrokerHistory 更新完了")
 
 # %%
 print(df_merged.columns.tolist())

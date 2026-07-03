@@ -134,7 +134,7 @@ for col in ["数量", "終値", "取得額"]:
 # =========================
 missing_price = df_merged["終値"].isna()
 if missing_price.any():
-    print("⚠ 終値が取得できていない銘柄があります:")
+    print("終値が取得できていない銘柄があります:")
     print(df_merged.loc[missing_price, ["SecurityID"]])
 
 # =========================
@@ -162,7 +162,7 @@ df_merged["利益"] = df_merged["利益"].astype("Int64")
 with pd.ExcelWriter(balance_path, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
     df_merged.to_excel(w, sheet_name="指定日基準_保有総額", index=False)
 
-print("✅ 指定日基準_保有総額.xlsx を更新しました。")
+print("指定日基準_保有総額.xlsx を更新しました。")
 
 
 #df.to_excel
