@@ -244,6 +244,133 @@ def export_grouped_items_to_sheet(input_path, output_path, sheet_name, item_list
 
     wb.save(output_path)
 
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from pathlib import Path
+
+plt.rcParams["font.family"] = ["Yu Gothic", "Meiryo", "sans-serif"]
+plt.rcParams["axes.unicode_minus"] = False
+
+def create_monthly_mean_std_graphs(input_path, output_dir, item_definitions):
+    """
+    Sheet4のデータから、各項目の月平均と平均±1σグラフを作成する。
+
+    item_definitions:
+        {
+            "元データの列名": {
+                "title": "グラフタイトル",
+                "ylabel": "縦軸名",
+                "filename": "保存ファイル名.png"
+            }
+        }
+    """
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 元データを一度だけ読み込む
+    df = pd.read_excel(input_path, sheet_name="Sheet4")
+    df["日付"] = pd.to_datetime(df["日付"], errors="coerce")
+    df = df.dropna(subset=["日付"])
+
+    # 年月単位の集計用列
+    df["年月"] = df["日付"].dt.to_period("M")
+
+    for item_name, graph_info in item_definitions.items():
+
+        if item_name not in df.columns:
+            print(f"列がないためグラフを作成しません: {item_name}")
+            continue
+
+        item_df = df[["年月", item_name]].copy()
+        item_df[item_name] = pd.to_numeric(
+            item_df[item_name],
+            errors="coerce"
+        )
+        item_df = item_df.dropna(subset=[item_name])
+
+        if item_df.empty:
+            print(f"データがないためグラフを作成しません: {item_name}")
+            continue
+
+        # 現在のpivot.std()と同じ標本標準偏差（ddof=1）
+        monthly_stats = (
+            item_df
+            .groupby("年月")[item_name]
+            .agg(["mean", "std"])
+            .sort_index()
+        )
+
+        # PeriodIndexをグラフ用の日付へ変換
+        x = monthly_stats.index.to_timestamp()
+
+        mean_values = monthly_stats["mean"]
+        std_values = monthly_stats["std"]
+
+        lower_values = mean_values - std_values
+        upper_values = mean_values + std_values
+
+        fig, ax = plt.subplots(figsize=(12, 6))
+
+        # 平均値の折れ線
+        line, = ax.plot(
+            x,
+            mean_values,
+            marker="o",
+            linewidth=2,
+            label="平均値"
+        )
+
+        # 平均値±1σの帯
+        ax.fill_between(
+            x,
+            lower_values,
+            upper_values,
+            alpha=0.2,
+            color=line.get_color(),
+            label="平均値 ± 1σ"
+        )
+
+        ax.set_title(
+            f"{graph_info['title']} 月次平均値と±1σ",
+            fontsize=16,
+            fontweight="bold"
+        )
+        ax.set_xlabel("年月")
+        ax.set_ylabel(graph_info["ylabel"])
+
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+
+        # 横軸の日付表示
+        locator = mdates.AutoDateLocator(
+            minticks=6,
+            maxticks=15
+        )
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(
+            mdates.DateFormatter("%Y/%m")
+        )
+
+        plt.setp(
+            ax.get_xticklabels(),
+            rotation=45,
+            ha="right"
+        )
+
+        fig.tight_layout()
+
+        png_path = output_dir / graph_info["filename"]
+
+        fig.savefig(
+            png_path,
+            dpi=180,
+            bbox_inches="tight"
+        )
+        plt.close(fig)
+
+        print("月次グラフ保存:", png_path)
+
 
 # %%
 # データ表作成
@@ -256,6 +383,56 @@ def get_excel_path(filename, folder="ExcelDATA"):
 input_path = get_excel_path("データ表1.xlsx")
 output_path= get_excel_path("データ表1-1.xlsx")
 
+monthly_graph_dir = os.path.join(
+    os.environ["OneDrive"],
+    "ドキュメント",
+    "PythonWork",
+    "Health",
+    "monthly_graph_png"
+)
+
+MONTHLY_GRAPH_ITEMS = {
+    "体重": {
+        "title": "体重",
+        "ylabel": "体重（kg）",
+        "filename": "1_体重_月次平均.png",
+    },
+    "血糖値": {
+        "title": "血糖値",
+        "ylabel": "血糖値",
+        "filename": "2_血糖値_月次平均.png",
+    },
+    "血圧収縮期": {
+        "title": "血圧収縮期",
+        "ylabel": "収縮期血圧",
+        "filename": "3_血圧収縮期_月次平均.png",
+    },
+    "血圧拡張期": {
+        "title": "血圧拡張期",
+        "ylabel": "拡張期血圧",
+        "filename": "4_血圧拡張期_月次平均.png",
+    },
+    "心拍数": {
+        "title": "心拍数",
+        "ylabel": "心拍数",
+        "filename": "5_心拍数_月次平均.png",
+    },
+    "中程度運動量（分）": {
+        "title": "中程度運動量",
+        "ylabel": "中程度運動量（分）",
+        "filename": "6_中程度運動量_月次平均.png",
+    },
+    "運動消費カロリー": {
+        "title": "運動消費エネルギー",
+        "ylabel": "運動消費カロリー（kcal）",
+        "filename": "7_運動消費エネルギー_月次平均.png",
+    },
+    "歩数": {
+        "title": "歩数",
+        "ylabel": "歩数",
+        "filename": "8_歩数_月次平均.png",
+    },
+}
 
 export_monthly_table(
     input_path,
@@ -294,6 +471,13 @@ export_monthly_table(
     output_path,
     sheet_name="歩数",
     item_name="歩数"
+)
+
+
+create_monthly_mean_std_graphs(
+    input_path=input_path,
+    output_dir=monthly_graph_dir,
+    item_definitions=MONTHLY_GRAPH_ITEMS
 )
 
 
