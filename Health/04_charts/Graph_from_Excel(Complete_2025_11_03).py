@@ -12,6 +12,7 @@ from openpyxl.chart import Reference, LineChart
 from openpyxl.chart.axis import DateAxis
 from openpyxl.utils import get_column_letter
 
+import pandas as pd
 
 # =========================
 # 引数
@@ -27,6 +28,13 @@ args = parser.parse_args()
 real_start = datetime.datetime.strptime(args.start_date, "%Y-%m-%d").date()
 real_end = datetime.datetime.strptime(args.end_date, "%Y-%m-%d").date()
 Item_input = args.item
+
+MOVING_AVERAGE_DAYS = 7
+
+moving_average_data_start = (
+    real_start
+    - datetime.timedelta(days=MOVING_AVERAGE_DAYS - 1)
+)
 
 DayOne = datetime.timedelta(days=1)
 
@@ -164,7 +172,7 @@ while True:
         read_row += 1
         continue
 
-    if dt_start_input < date3 < dt_end_input:
+    if moving_average_data_start <= date3 <= real_end:
         ws2.cell(row=write_row, column=1).value = date3
 
         for i, src_col in enumerate(ITEM["sheet4_cols"], start=2):
@@ -176,69 +184,391 @@ while True:
 
 print("転記行数:", write_row - 2)
 
+# ============================================================
+# 7日移動平均を作成
+# ============================================================
+
+def excel_value_to_float(value):
+    """
+    Excelセルの値を数値へ変換する。
+    空欄や数値化できない値はNoneとする。
+    0は有効な測定値として残す。
+    """
+    if value is None or value == "":
+        return None
+
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def calculate_calendar_moving_average(
+    dates,
+    values,
+    window_days=7,
+):
+    """
+    暦日基準の移動平均を計算する。
+
+    各日について、その日を含む直前window_days日間を対象とする。
+    欠測値は平均から除外するが、0は平均に含める。
+    """
+    series = pd.Series(
+        values,
+        index=pd.to_datetime(dates),
+        dtype="float64",
+    )
+
+    # 日付順に並べ、同じ日付が重複した場合は最後の値を使う
+    series = series.sort_index()
+    series = series[
+        ~series.index.duplicated(keep="last")
+    ]
+
+    moving_average = series.rolling(
+        f"{window_days}D",
+        min_periods=1,
+    ).mean()
+
+    result = []
+
+    for current_date in pd.to_datetime(dates):
+        value = moving_average.get(current_date)
+
+        if pd.isna(value):
+            result.append(None)
+        else:
+            result.append(float(value))
+
+    return result
+
+
+data_row_start = 2
+data_row_end = ws2.max_row
+
+if data_row_end < data_row_start:
+    raise RuntimeError(
+        "指定期間のグラフ用データがありません。"
+    )
+
+moving_average_source_columns = []
+
+if int(Item_input) in (1, 2, 4, 5, 6):
+    # 単独項目：B列
+    moving_average_source_columns = [2]
+
+elif int(Item_input) == 3:
+    # 血圧・心拍数：B～D列
+    moving_average_source_columns = [2, 3, 4]
+
+
+dates_for_average = [
+    ws2.cell(row=row, column=1).value
+    for row in range(data_row_start, data_row_end + 1)
+]
+
+# 元データの右側に7日移動平均列を追加する
+moving_average_start_column = (
+    max(moving_average_source_columns) + 1
+)
+
+for output_offset, source_column in enumerate(
+    moving_average_source_columns
+):
+    output_column = (
+        moving_average_start_column + output_offset
+    )
+
+    source_title = ws2.cell(
+        row=1,
+        column=source_column,
+    ).value
+
+    ws2.cell(
+        row=1,
+        column=output_column,
+    ).value = f"{source_title} 7日移動平均"
+
+    source_values = [
+        excel_value_to_float(
+            ws2.cell(
+                row=row,
+                column=source_column,
+            ).value
+        )
+        for row in range(
+            data_row_start,
+            data_row_end + 1,
+        )
+    ]
+
+    moving_values = calculate_calendar_moving_average(
+        dates_for_average,
+        source_values,
+        MOVING_AVERAGE_DAYS,
+    )
+
+    for row, moving_value in zip(
+        range(data_row_start, data_row_end + 1),
+        moving_values,
+    ):
+        ws2.cell(
+            row=row,
+            column=output_column,
+        ).value = moving_value
+
+print(
+    f"{MOVING_AVERAGE_DAYS}日移動平均作成完了: "
+    f"{len(dates_for_average)}日分"
+)
+
 if write_row <= 2:
     raise ValueError("指定期間のデータがありません")
 
 
-# =========================
-# Sheet2 → Sheet3 転記
-# =========================
+# ============================================================
+# Sheet2からSheet3へグラフ用データを転記
+# ============================================================
 
-for r in range(1, ws2.max_row + 1):
-    for c in range(1, len(ITEM["headers"]) + 2):
-        ws3.cell(row=r, column=c).value = ws2.cell(row=r, column=c).value
+if int(Item_input) in (1, 2, 4, 5, 6):
+    # 日付、日次値、7日移動平均
+    graph_column_count = 3
 
-for c in range(1, len(ITEM["headers"]) + 2):
-    ws3.column_dimensions[get_column_letter(c)].width = 15
+elif int(Item_input) == 3:
+    # 日付、収縮期、拡張期、心拍数、
+    # 各項目の7日移動平均
+    graph_column_count = 7
+
+else:
+    raise ValueError(
+        f"項目番号が不正です: {Item_input}"
+    )
+
+
+# 見出しを転記
+for column in range(1, graph_column_count + 1):
+    ws3.cell(row=1, column=column).value = ws2.cell(
+        row=1,
+        column=column,
+    ).value
+
+# 指定期間だけをSheet3へ転記
+sheet3_row = 2
+
+for source_row in range(2, ws2.max_row + 1):
+    source_date = ws2.cell(
+        row=source_row,
+        column=1,
+    ).value
+
+    if isinstance(source_date, datetime.datetime):
+        source_date = source_date.date()
+
+    if not isinstance(source_date, datetime.date):
+        continue
+
+    if real_start <= source_date <= real_end:
+        for column in range(1, graph_column_count + 1):
+            ws3.cell(
+                row=sheet3_row,
+                column=column,
+            ).value = ws2.cell(
+                row=source_row,
+                column=column,
+            ).value
+
+        sheet3_row += 1
+
+
+ws3.column_dimensions["A"].width = 12
+
+for row in range(2, ws3.max_row + 1):
+    ws3.cell(
+        row=row,
+        column=1,
+    ).number_format = "yyyy-mm-dd"
 
 
 # =========================
 # 折れ線グラフ作成
 # =========================
 
+# ============================================================
+# 折れ線グラフを作成
+# ============================================================
+
 graph_obj = LineChart()
 
-values = Reference(
-    ws3,
-    min_row=1,
-    min_col=2,
-    max_row=ws3.max_row,
-    max_col=len(ITEM["headers"]) + 1,
+graph_obj.style = 13
+graph_obj.height = 16
+graph_obj.width = 30
+graph_obj.anchor = "F8"
+
+graph_obj.title = (
+    f"{ITEM['name']}"
+    f"({real_start}～{real_end})"
 )
 
-graph_obj.add_data(values, titles_from_data=True)
+graph_obj.x_axis = DateAxis(crossAx=500)
+graph_obj.x_axis.number_format = "yyyy-mm-dd"
+graph_obj.x_axis.title = "年月日"
+graph_obj.x_axis.majorTimeUnit = "days"
 
-x_axis = Reference(
+graph_obj.y_axis.crossAx = 500
+
+if int(Item_input) == 1:
+    graph_obj.y_axis.title = "体重（kg）"
+
+elif int(Item_input) == 2:
+    graph_obj.y_axis.title = "血糖値（mg/dL）"
+
+elif int(Item_input) == 3:
+    graph_obj.y_axis.title = "血圧・心拍数"
+
+elif int(Item_input) == 4:
+    graph_obj.y_axis.title = "中程度運動量（分）"
+
+elif int(Item_input) == 5:
+    graph_obj.y_axis.title = (
+        "運動消費エネルギー（kcal）"
+    )
+
+elif int(Item_input) == 6:
+    graph_obj.y_axis.title = "歩数"
+
+
+categories = Reference(
     ws3,
     min_col=1,
     min_row=2,
     max_row=ws3.max_row,
 )
 
-graph_obj.set_categories(x_axis)
 
-graph_obj.y_axis.title = ITEM["ylabel"]
-graph_obj.y_axis.crossAx = 500
+if int(Item_input) in (1, 2, 4, 5, 6):
+    # B列：日次値
+    # C列：7日移動平均
+    daily_data = Reference(
+        ws3,
+        min_col=2,
+        max_col=2,
+        min_row=1,
+        max_row=ws3.max_row,
+    )
 
-graph_obj.x_axis = DateAxis(crossAx=500)
-graph_obj.x_axis.number_format = "m/d"
-graph_obj.x_axis.title = "年月日"
+    average_data = Reference(
+        ws3,
+        min_col=3,
+        max_col=3,
+        min_row=1,
+        max_row=ws3.max_row,
+    )
 
-graph_obj.title = f"{ITEM['name']} ({real_start} ～ {real_end})"
+    graph_obj.add_data(
+        daily_data,
+        titles_from_data=True,
+    )
 
-graph_obj.anchor = "F8"
-graph_obj.width = 30
-graph_obj.height = 16
+    graph_obj.add_data(
+        average_data,
+        titles_from_data=True,
+    )
 
-# 線とマーカー
-colors = ["FF0000", "00AA00", "0000FF"]
+else:
+    # 血圧・心拍数
+    # B～D列：日次値
+    # E～G列：7日移動平均
+    daily_data = Reference(
+        ws3,
+        min_col=2,
+        max_col=4,
+        min_row=1,
+        max_row=ws3.max_row,
+    )
 
-for i, ser in enumerate(graph_obj.ser):
-    color = colors[i % len(colors)]
-    ser.graphicalProperties.line.solidFill = color
-    ser.graphicalProperties.line.width = 15000
-    ser.marker.symbol = "dot"
-    ser.marker.graphicalProperties.line.solidFill = color
+    average_data = Reference(
+        ws3,
+        min_col=5,
+        max_col=7,
+        min_row=1,
+        max_row=ws3.max_row,
+    )
+
+    graph_obj.add_data(
+        daily_data,
+        titles_from_data=True,
+        from_rows=False,
+    )
+
+    graph_obj.add_data(
+        average_data,
+        titles_from_data=True,
+        from_rows=False,
+    )
+
+
+graph_obj.set_categories(categories)
+graph_obj.legend.position = "b"
+
+
+# ============================================================
+# 系列の表示形式
+# ============================================================
+
+# 日次値と移動平均の対応色
+SERIES_COLORS = [
+    "C00000",  # 赤
+    "4472C4",  # 青
+    "70AD47",  # 緑
+]
+
+if int(Item_input) in (1, 2, 4, 5, 6):
+    daily_series_count = 1
+else:
+    daily_series_count = 3
+
+
+for index, series in enumerate(graph_obj.series):
+    is_moving_average = (
+        index >= daily_series_count
+    )
+
+    metric_index = (
+        index - daily_series_count
+        if is_moving_average
+        else index
+    )
+
+    color = SERIES_COLORS[
+        metric_index % len(SERIES_COLORS)
+    ]
+
+    series.graphicalProperties.line.solidFill = (
+        color
+    )
+
+    # Excelのスムージングは使わない
+    series.smooth = False
+
+    if is_moving_average:
+        # 7日移動平均：太線、マーカーなし
+        series.graphicalProperties.line.width = 35000
+        series.marker.symbol = "none"
+
+    else:
+        # 日次値：細線、小さい丸マーカー
+        series.graphicalProperties.line.width = 10000
+        series.marker.symbol = "circle"
+        series.marker.size = 3
+
+        series.marker.graphicalProperties.line.solidFill = (
+            color
+        )
+        series.marker.graphicalProperties.solidFill = (
+            color
+        )
+
 
 ws3.add_chart(graph_obj)
 
