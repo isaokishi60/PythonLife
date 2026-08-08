@@ -106,14 +106,28 @@ def main():
     # ★ レートを小数点以下1桁に丸める
     fx = round(fx, 1)
 
-    # 追記データ
-    new_row = pd.DataFrame({
-        "Date": [used_date],
-        "USDJPY": [fx]
-    })
+    # ==================================================
+    # 同じ日付があれば更新、なければ新規追加
+    # ==================================================
 
-    # 結合（追記）
-    df_fx = pd.concat([df_fx, new_row], ignore_index=True)
+    if used_date in df_fx["Date"].values:
+        # 既存日付ならレートを更新
+        df_fx.loc[df_fx["Date"] == used_date, "USDJPY"] = fx
+        print(f"既存データを更新: {used_date} USDJPY={fx:.1f}")
+    else:
+        # 存在しなければ新規追加
+        new_row = pd.DataFrame({
+            "Date": [used_date],
+            "USDJPY": [fx]
+        })
+        df_fx = pd.concat([df_fx, new_row], ignore_index=True)
+        print(f"新規データを追加: {used_date} USDJPY={fx:.1f}")
+
+    # 念のためDateの重複を除去
+    df_fx = df_fx.drop_duplicates(subset=["Date"], keep="last")
+
+    # 日付順に並べる
+    df_fx = df_fx.sort_values("Date").reset_index(drop=True)
 
     # 保存
     with pd.ExcelWriter(FX_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as w:
