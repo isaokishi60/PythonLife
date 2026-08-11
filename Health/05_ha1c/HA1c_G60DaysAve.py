@@ -94,6 +94,11 @@ r2_comparison_png = os.path.join(
     "HA1c_平均日数別_決定係数.png"
 )
 
+prediction_png = os.path.join(
+    output_dir,
+    "血糖値から予測されるHA1c.png"
+)
+
 pptx_path = os.path.join(
     output_dir,
     "HA1cと平均血糖値_平均日数分析.pptx"
@@ -868,6 +873,254 @@ wb.save(hba1c_path)
 
 print(f"Excel保存: {hba1c_path}")
 
+# ============================================================
+# データ表1.xlsx Sheet5 に日別HA1c予測値を保存
+# ============================================================
+
+PREDICTION_START_DATE = pd.Timestamp("2025-01-01")
+
+prediction_rows = []
+
+# 回帰分析で最適と判定された日数を使用
+prediction_days = best_days
+prediction_slope = best_slope
+prediction_intercept = best_intercept
+
+minimum_count = 21
+
+for _, row in df_glucose.iterrows():
+
+    target_date = row["日付"]
+
+    if target_date < PREDICTION_START_DATE:
+        continue
+
+    # 回帰分析と同じ条件：
+    # 当日は含めず、直前 prediction_days 日間を使用
+    start_date = target_date - timedelta(days=prediction_days)
+
+    mask = (
+        (df_glucose["日付"] >= start_date)
+        & (df_glucose["日付"] < target_date)
+    )
+
+    target_glucose = df_glucose.loc[
+        mask,
+        "血糖値"
+    ]
+
+    count_value = int(target_glucose.count())
+
+    if count_value >= minimum_count:
+
+        average_glucose = float(
+            target_glucose.mean()
+        )
+
+        predicted_hba1c = (
+            prediction_slope * average_glucose
+            + prediction_intercept
+        )
+
+        predicted_hba1c = round(
+            predicted_hba1c,
+            2
+        )
+
+    else:
+        predicted_hba1c = np.nan
+
+    prediction_rows.append({
+        "日付": target_date.date(),
+        "血糖値": row["血糖値"],
+        "HA1c予測値": predicted_hba1c
+    })
+
+
+prediction_df = pd.DataFrame(
+    prediction_rows
+)
+
+
+# ============================================================
+# Sheet5を書き換える
+# ============================================================
+
+wb_glucose = openpyxl.load_workbook(
+    glucose_path
+)
+
+if "Sheet5" in wb_glucose.sheetnames:
+
+    sheet5_index = wb_glucose.sheetnames.index(
+        "Sheet5"
+    )
+
+    wb_glucose.remove(
+        wb_glucose["Sheet5"]
+    )
+
+    ws5 = wb_glucose.create_sheet(
+        "Sheet5",
+        sheet5_index
+    )
+
+else:
+    ws5 = wb_glucose.create_sheet(
+        "Sheet5"
+    )
+
+
+add_dataframe_to_sheet(
+    ws5,
+    prediction_df
+)
+
+ws5.column_dimensions["A"].width = 14
+ws5.column_dimensions["B"].width = 12
+ws5.column_dimensions["C"].width = 16
+
+# 日付表示
+for cell in ws5["A"][1:]:
+    cell.number_format = "yyyy/mm/dd"
+
+# HA1c予測値を小数第2位まで表示
+for cell in ws5["C"][1:]:
+    cell.number_format = "0.00"
+
+
+wb_glucose.save(
+    glucose_path
+)
+
+print("=" * 60)
+print("日別HA1c予測値を作成しました。")
+print(f"予測開始日: {PREDICTION_START_DATE:%Y-%m-%d}")
+print(f"使用平均日数: {prediction_days}日")
+print(f"回帰係数: {prediction_slope:.4f}")
+print(f"切片: {prediction_intercept:.3f}")
+print(f"出力件数: {len(prediction_df)}")
+print(f"保存先: {glucose_path} / Sheet5")
+print("=" * 60)
+
+# ============================================================
+# グラフ：血糖値から予測されるHA1c
+# ============================================================
+
+plot_prediction_df = prediction_df.dropna(
+    subset=["血糖値", "HA1c予測値"]
+).copy()
+
+if plot_prediction_df.empty:
+    raise ValueError(
+        "HA1c予測グラフを作成できるデータがありません。"
+    )
+
+fig, ax1 = plt.subplots(
+    figsize=(13.33, 7.5)
+)
+
+ax2 = ax1.twinx()
+
+# 実測血糖値
+line1 = ax1.plot(
+    plot_prediction_df["日付"],
+    plot_prediction_df["血糖値"],
+    linewidth=1.8,
+    label="血糖値"
+)
+
+# HA1c予測値
+line2 = ax2.plot(
+    plot_prediction_df["日付"],
+    plot_prediction_df["HA1c予測値"],
+    color="tab:orange",
+    linewidth=3,
+    label="HA1c予測値"
+)
+
+ax1.set_title(
+    "血糖値から予測されるHA1c",
+    fontsize=20,
+    pad=18
+)
+
+ax1.set_xlabel(
+    "日付",
+    fontsize=13
+)
+
+ax1.set_ylabel(
+    "朝食前血糖値（mg/dL）",
+    fontsize=13
+)
+
+ax2.set_ylabel(
+    "HA1c予測値（%）",
+    fontsize=13
+)
+
+# 血糖値軸
+ax1.set_ylim(
+    0,
+    max(
+        250,
+        plot_prediction_df["血糖値"].max() + 20
+    )
+)
+
+# HA1c軸
+ax2.set_ylim(
+    5.8,
+    8.0
+)
+
+ax1.xaxis.set_major_locator(
+    mdates.MonthLocator()
+)
+
+ax1.xaxis.set_major_formatter(
+    mdates.DateFormatter("%Y/%m/%d")
+)
+
+plt.setp(
+    ax1.get_xticklabels(),
+    rotation=45,
+    ha="right"
+)
+
+ax1.grid(
+    True,
+    linestyle="--",
+    alpha=0.4
+)
+
+lines = line1 + line2
+
+labels = [
+    line.get_label()
+    for line in lines
+]
+
+ax1.legend(
+    lines,
+    labels,
+    loc="upper left"
+)
+
+fig.tight_layout()
+
+fig.savefig(
+    prediction_png,
+    dpi=180,
+    bbox_inches="tight"
+)
+
+plt.close(fig)
+
+print(
+    f"HA1c予測グラフPNG保存: {prediction_png}"
+)
 
 # ============================================================
 # グラフ1：HA1cと60日平均血糖値の時系列
@@ -1231,34 +1484,46 @@ prs = Presentation()
 prs.slide_width = Inches(13.333)
 prs.slide_height = Inches(7.5)
 
+# 1枚目
 add_graph_slide(
     prs,
     "HA1cと測定日前60日間の平均血糖値",
     time_series_png
 )
 
+# 2枚目
 add_graph_slide(
     prs,
     "HA1cと60日平均血糖値の散布図・回帰分析",
     regression_60_png
 )
 
+# 3枚目
 add_graph_slide(
     prs,
     "平均日数別の相関係数",
     correlation_comparison_png
 )
 
+# 4枚目
 add_graph_slide(
     prs,
     "平均日数別の決定係数",
     r2_comparison_png
 )
 
+# 5枚目
 add_graph_slide(
     prs,
     f"最適平均日数（{best_days}日）の散布図・回帰分析",
     best_regression_png
+)
+
+# 6枚目
+add_graph_slide(
+    prs,
+    "血糖値から予測されるHA1c",
+    prediction_png
 )
 
 prs.save(pptx_path)
@@ -1273,3 +1538,6 @@ print(f"PowerPoint保存: {pptx_path}")
 os.startfile(pptx_path)
 
 print("処理が完了しました。")
+
+
+# label="HA1c予測値"
