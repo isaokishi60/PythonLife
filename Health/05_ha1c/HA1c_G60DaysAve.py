@@ -780,11 +780,16 @@ for series in graph_obj1.series:
 for series in graph_obj2.series:
     series.smooth = False
 
+# HA1c（左側Y軸）の表示範囲
+graph_obj1.y_axis.scaling.min = 4
+graph_obj1.y_axis.scaling.max = 9
+
+# 60日平均血糖（右側Y軸）の表示範囲
 graph_obj2.y_axis.axId = 200
 graph_obj2.y_axis.crosses = "max"
 graph_obj2.y_axis.majorGridlines = None
-graph_obj2.y_axis.scaling.min = 50
-graph_obj2.y_axis.scaling.max = 200
+graph_obj2.y_axis.scaling.min = 80
+graph_obj2.y_axis.scaling.max = 160
 
 graph_obj1.width = 25
 graph_obj1.height = 15
