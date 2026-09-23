@@ -27,12 +27,13 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import statsmodels.api as sm
 
 # 日本語フォント
 plt.rcParams["font.family"] = "Yu Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
-
+# regression_df = pd.concat
 # ============================================================
 # 1. 設定
 # ============================================================
@@ -351,6 +352,101 @@ def regression_stats(df, x_col, y_col):
 
 
 # ============================================================
+# 8-2. 運動量を補正した服薬中・中止後比較
+# ============================================================
+
+def adjusted_regression(df, x_col, y_col):
+
+    # 測定不足日と欠測値を除外
+    d = df[
+        df["測定不足"].fillna(0) == 0
+    ][
+        ["服薬状態", x_col, y_col]
+    ].dropna().copy()
+
+    if len(d) < 5:
+        return pd.DataFrame()
+
+    # 中止後=1、服薬中=0
+    d["中止後"] = (
+        d["服薬状態"] == "中止後"
+    ).astype(int)
+
+    # -----------------------------
+    # モデル1
+    # y = 定数 + 運動量 + 中止後
+    # -----------------------------
+    X1 = d[
+        [x_col, "中止後"]
+    ].astype(float)
+
+    X1 = sm.add_constant(X1)
+
+    y = d[y_col].astype(float)
+
+    model1 = sm.OLS(
+        y,
+        X1
+    ).fit(cov_type="HC3")
+
+    rows = []
+
+    for term in model1.params.index:
+        rows.append(
+            {
+                "比較": f"{x_col} → {y_col}",
+                "モデル": "運動量＋服薬状態",
+                "項目": term,
+                "係数": model1.params[term],
+                "95%CI下限": model1.conf_int().loc[term, 0],
+                "95%CI上限": model1.conf_int().loc[term, 1],
+                "P値": model1.pvalues[term],
+                "データ数": int(model1.nobs),
+                "R2": model1.rsquared,
+            }
+        )
+
+    # -----------------------------
+    # モデル2
+    # y = 定数 + 運動量 + 中止後
+    #     + 運動量×中止後
+    # -----------------------------
+    interaction_col = "運動量×中止後"
+
+    d[interaction_col] = (
+        d[x_col].astype(float)
+        * d["中止後"]
+    )
+
+    X2 = d[
+        [x_col, "中止後", interaction_col]
+    ].astype(float)
+
+    X2 = sm.add_constant(X2)
+
+    model2 = sm.OLS(
+        y,
+        X2
+    ).fit(cov_type="HC3")
+
+    for term in model2.params.index:
+        rows.append(
+            {
+                "比較": f"{x_col} → {y_col}",
+                "モデル": "運動量＋服薬状態＋交互作用",
+                "項目": term,
+                "係数": model2.params[term],
+                "95%CI下限": model2.conf_int().loc[term, 0],
+                "95%CI上限": model2.conf_int().loc[term, 1],
+                "P値": model2.pvalues[term],
+                "データ数": int(model2.nobs),
+                "R2": model2.rsquared,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+# ============================================================
 # 9. 時系列グラフ
 # ============================================================
 
@@ -518,6 +614,8 @@ def save_excel(
     df,
     summary_df,
     regression_df,
+    adjusted_max_df,
+    adjusted_moderate_max_df,
 ):
 
     with pd.ExcelWriter(
@@ -534,6 +632,20 @@ def save_excel(
         regression_df.to_excel(
             writer,
             sheet_name="運動量との関係",
+            index=False,
+        )
+
+        adjusted_df = pd.concat(
+            [
+                adjusted_max_df,
+                adjusted_moderate_max_df,
+            ],
+            ignore_index=True,
+        )
+
+        adjusted_df.to_excel(
+            writer,
+            sheet_name="運動量補正比較",
             index=False,
         )
 
@@ -638,13 +750,49 @@ def main():
     )
 
     # ----------------------------
-    # Excel
+    # 運動消費カロリーで補正した最大心拍数比較
+    # ----------------------------
+
+    adjusted_max_df = adjusted_regression(
+        df,
+        "運動消費カロリー",
+        "最大心拍数",
+    )
+
+    print("\n=== 運動消費カロリー補正後：最大心拍数 ===")
+    print(
+        adjusted_max_df.to_string(
+            index=False
+        )
+    )
+
+    # ----------------------------
+    # 中程度運動量で補正した最大心拍数比較
+    # ----------------------------
+
+    adjusted_moderate_max_df = adjusted_regression(
+        df,
+        "中程度運動量（分）",
+        "最大心拍数",
+    )
+
+    print("\n=== 中程度運動量補正後：最大心拍数 ===")
+    print(
+        adjusted_moderate_max_df.to_string(
+            index=False
+        )
+    )
+
+    # ----------------------------
+    # Excel保存
     # ----------------------------
 
     save_excel(
         df,
         summary_df,
         regression_df,
+        adjusted_max_df,
+        adjusted_moderate_max_df,
     )
 
     # ----------------------------
