@@ -7,6 +7,7 @@ import datetime
 import subprocess
 import sys
 from pathlib import Path
+from layout_view import show_layout
 
 # 🍄 CSSでボタンと品名の見た目をカスタマイズ
 st.markdown("""
@@ -44,66 +45,145 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ===== パス設定（Excel/写真）ここから =====
-# このファイル(start_page.py)がある場所：...\農作業\Streamlit画面
+
+# このファイル(start_page.py)がある場所
 BASE_DIR = Path(__file__).resolve().parent
 
-# 農作業のルート：...\農作業
-ROOT_DIR = BASE_DIR.parent
+# OneDrive
+ONEDRIVE = os.environ.get("OneDrive")
 
-# Excelフォルダ：...\農作業\農作業関係Excel
+if not ONEDRIVE:
+    raise RuntimeError("環境変数 OneDrive が見つかりません。")
+
+# 農作業のルート
+ROOT_DIR = (
+    Path(ONEDRIVE)
+    / "ドキュメント"
+    / "PythonWork"
+    / "農作業"
+)
+
+# Excelフォルダ
 EXCEL_DIR = ROOT_DIR / "農作業関係Excel"
 
-# 以前 DATA_DIR を使っている箇所があるので、互換のために揃えておく
+# 既存コードとの互換用
 DATA_DIR = EXCEL_DIR
 
-# データ読み込み（Excelの場所をEXCEL_DIRに変更）
-df_photo = pd.read_excel(EXCEL_DIR / "vegetable_garden_photo_ex2_with_bed.xlsx")
+# データ読み込み
+df_photo = pd.read_excel(
+    EXCEL_DIR / "vegetable_garden_location.xlsx"
+)
 
-# 写真フォルダ候補（上から順に探す）
+# ============================================================
+# 作物マスター読み込み（科名取得用）
+# ============================================================
+
+df_crop_master = pd.read_excel(
+    EXCEL_DIR / "作物マスター.xlsx"
+)
+
+# 作物名・科名の前後空白を除去
+df_crop_master["作物名"] = (
+    df_crop_master["作物名"]
+    .astype(str)
+    .str.strip()
+)
+
+df_crop_master["科（連作用）"] = (
+    df_crop_master["科（連作用）"]
+    .astype(str)
+    .str.strip()
+)
+
+# 作型違いで同じ作物が複数行あるため、
+# 作物名ごとに1件にして辞書化
+crop_family_dict = (
+    df_crop_master
+    .drop_duplicates(
+        subset=["作物名"]
+    )
+    .set_index("作物名")["科（連作用）"]
+    .to_dict()
+)
+
+# 写真フォルダ候補
 PHOTO_DIR_CANDIDATES = [
-    Path(r"G:\その他のパソコン\マイ ノートパソコン\Pictures\Vegetables"),  # 旧（存在すれば使う）
-    ROOT_DIR / "Pictures" / "Vegetables",                                  # 推奨：農作業配下
-    Path(os.environ.get("OneDrive", "")) / "Pictures" / "Vegetables",      # OneDrive配下
+    Path(r"G:\その他のパソコン\マイ ノートパソコン\Pictures\Vegetables"),
+    ROOT_DIR / "Pictures" / "Vegetables",
+    Path(ONEDRIVE) / "Pictures" / "Vegetables",
 ]
 
 photo_dir_path = None
+
 for p in PHOTO_DIR_CANDIDATES:
     try:
-        if str(p) and p.exists():
+        if p.exists():
             photo_dir_path = p
             break
     except Exception:
         pass
 
-# 文字列として使いたい箇所のために str も用意
-photo_dir = str(photo_dir_path) if photo_dir_path is not None else ""
+photo_dir = (
+    str(photo_dir_path)
+    if photo_dir_path is not None
+    else ""
+)
 
 if photo_dir_path is None:
     st.warning(
         "写真フォルダが見つかりません。画像は表示できません。\n候補:\n- "
         + "\n- ".join(map(str, PHOTO_DIR_CANDIDATES))
     )
+
 # ===== パス設定（Excel/写真）ここまで =====
 
+# ============================================================
+# 画面切り替え
+# ============================================================
+
+if "garden_view" not in st.session_state:
+    st.session_state.garden_view = "start"
+
+
+# レイアウト画面
+if st.session_state.garden_view == "layout":
+
+    if st.button("← スタート画面に戻る"):
+        st.session_state.garden_view = "start"
+        st.rerun()
+
+    show_layout()
+
+    # 下にスタート画面の内容を表示しない
+    st.stop()
 
 st.title("家庭菜園スタート画面")
 
-# ==== ビュー切り替え（薄い緑ボタン） ====
+# ==== ビュー切り替え ====
 st.subheader("ビュー切り替え")
 
 col_nav1, col_nav2 = st.columns(2)
 
+# ガントチャートは従来どおり別画面
 with col_nav1:
     st.markdown(
-        '<a class="view-link-button" href="http://localhost:8502" target="_blank">ガントチャート</a>',
+        '<a class="view-link-button" '
+        'href="http://localhost:8502" '
+        'target="_blank">'
+        'ガントチャート'
+        '</a>',
         unsafe_allow_html=True
     )
 
+# レイアウトビューは同じStreamlit内で表示
 with col_nav2:
-    st.markdown(
-        '<a class="view-link-button" href="http://localhost:8503" target="_blank">レイアウトビュー</a>',
-        unsafe_allow_html=True
-    )
+
+    if st.button(
+        "レイアウトビュー",
+        key="btn_layout_view"
+    ):
+        st.session_state.garden_view = "layout"
+        st.rerun()
 
 
 st.write("---")
@@ -134,10 +214,10 @@ if st.button("空き畝ガントチャートを表示", key="btn_free_bed_gantt"
 # ==== 機能ボタン（薄い青・横一列） ====
 st.subheader("家庭菜園スタートメニュー")
 
-btn_cols = st.columns(5)
+btn_cols = st.columns(6)
 
 with btn_cols[0]:
-    show_record = st.button("記録を見る", key="btn_record")
+    show_record = st.button("品目別記録を見る", key="btn_record")
 
 with btn_cols[1]:
     show_schedule = st.button("スケジュールを見る", key="btn_schedule")
@@ -150,6 +230,12 @@ with btn_cols[3]:
 
 with btn_cols[4]:
     show_month_tasks = st.button("各月の作業を見る", key="btn_month_tasks")
+
+with btn_cols[5]:
+    show_bed_photos = st.button(
+        "畝の写真を見る",
+        key="btn_bed_photos"
+    )
 
 
 st.write("---")
@@ -167,12 +253,57 @@ names = (
 
 options = sorted(names.unique().tolist())
 
-# --- 品名を選択（selectbox） ---
-selected_item = st.selectbox(
-    "品名を選んでください（カタカナ）",
-    options
+# ============================================================
+# 検索方法を選択
+# ============================================================
+
+search_mode = st.radio(
+    "検索方法を選んでください",
+    [
+        "品名から見る",
+        "畝番号から見る",
+    ],
+    horizontal=True,
 )
 
+selected_item = None
+selected_bed = None
+
+
+# ============================================================
+# 品名から見る
+# ============================================================
+
+if search_mode == "品名から見る":
+
+    selected_item = st.selectbox(
+        "品名を選んでください（カタカナ）",
+        options,
+        key="selected_item"
+    )
+
+
+# ============================================================
+# 畝番号から見る
+# ============================================================
+
+else:
+
+    # 畝番号一覧
+    bed_options = sorted(
+        df_photo["畝"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+        .tolist()
+    )
+
+    selected_bed = st.selectbox(
+        "畝番号を選んでください",
+        bed_options,
+        key="selected_bed"
+    )
 
 # CSSで文字を大きく太く
 st.markdown("""
@@ -187,8 +318,18 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# 選ばれた品名を表示
-st.markdown(f'<p class="selected-item">選択中の品名：{selected_item}</p>', unsafe_allow_html=True)
+# 選ばれた品名または畝番号を表示
+if selected_item is not None:
+    st.markdown(
+        f'<p class="selected-item">選択中の品名：{selected_item}</p>',
+        unsafe_allow_html=True
+    )
+
+if selected_bed is not None:
+    st.markdown(
+        f'<p class="selected-item">選択中の畝番号：{selected_bed}</p>',
+        unsafe_allow_html=True
+    )
 
 default_start = datetime.date(2025, 1, 1)
 selected_start_date = st.date_input("開始日を選んでください", value=default_start)
@@ -233,7 +374,7 @@ if show_record:
                 else:
                     st.error(f"写真が見つかりません: {photo_path}")
             else:
-                st.write(f"Photo_id: {row['Photo_id']}")
+                st.write("写真なし")
 
 
 # 絶対パスを作成
@@ -331,6 +472,233 @@ if show_crop:
         st.write(f"📆 推奨年数: {row['年数']}")
         st.write(f"📝 備考: {row['備考']}")
 
+
+# ============================================================
+# 畝ごとの過去写真一覧
+# ============================================================
+
+if show_bed_photos:
+
+    st.subheader(
+        f"{selected_bed} の過去写真"
+    )
+
+    # ============================================================
+    # 指定畝 ＋ 指定期間の履歴
+    # ============================================================
+
+    df_bed = df_photo.copy()
+
+    # 日付をdatetimeに変換
+    df_bed["Date"] = pd.to_datetime(
+        df_bed["Date"],
+        errors="coerce"
+    )
+
+    # 畝番号 ＋ 開始日～終了日で絞り込み
+    df_bed = df_bed[
+        (
+            df_bed["畝"]
+            .astype(str)
+            .str.strip()
+            == selected_bed
+        )
+        &
+        (
+            df_bed["Date"].dt.date
+            >= selected_start_date
+        )
+        &
+        (
+            df_bed["Date"].dt.date
+            <= selected_end_date
+        )
+    ].copy()
+
+
+    if df_bed.empty:
+
+        st.info(
+            f"{selected_bed} の "
+            f"{selected_start_date} ～ {selected_end_date} "
+            "の記録はありません。"
+        )
+
+    else:
+
+        # 新しい順
+        df_bed = df_bed.sort_values(
+            "Date",
+            ascending=False
+        )
+
+        # 同じ写真が複数の作物・記録で使われている場合、
+        # JPG_Photo単位で重複表示しない
+        df_bed_photo = (
+            df_bed[
+                df_bed["JPG_Photo"].notna()
+            ]
+            .drop_duplicates(
+                subset=["JPG_Photo"],
+                keep="first"
+            )
+        )
+
+        if df_bed_photo.empty:
+
+            st.info(
+                f"{selected_bed} の写真は登録されていません。"
+            )
+
+        else:
+
+            st.write(
+                f"写真件数: {len(df_bed_photo)}"
+            )
+
+            for _, row in df_bed_photo.iterrows():
+
+                photo_name = str(
+                    row["JPG_Photo"]
+                ).strip()
+
+                photo_path = os.path.join(
+                    photo_dir,
+                    photo_name
+                )
+
+                # 日付
+                if pd.notna(row["Date"]):
+                    date_text = row["Date"].strftime(
+                        "%Y-%m-%d"
+                    )
+                else:
+                    date_text = "日付不明"
+
+                # 作物・作業
+                item = str(
+                    row.get(
+                        "Name or Item",
+                        ""
+                    )
+                ).strip()
+
+                # 科名
+                family = crop_family_dict.get(
+                    item,
+                    ""
+                )
+
+                # 区画
+                block = row.get(
+                    "区画",
+                    ""
+                )
+
+                if pd.isna(block):
+                    block = ""
+                else:
+                    block = str(block).strip()
+
+                # Tag
+                tags = []
+
+                for tag_col in [
+                    "Tag1",
+                    "Tag2",
+                    "Tag3",
+                    "Tag4",
+                    "Tag5",
+                ]:
+
+                    if (
+                        tag_col in row.index
+                        and pd.notna(
+                            row[tag_col]
+                        )
+                    ):
+
+                        tag_text = str(
+                            row[tag_col]
+                        ).strip()
+
+                        if tag_text:
+                            tags.append(
+                                tag_text
+                            )
+                # 畝状態
+                bed_status = ""
+
+                if (
+                    "畝状態" in row.index
+                    and pd.notna(row["畝状態"])
+                ):
+                    bed_status = str(
+                        row["畝状態"]
+                    ).strip()
+
+
+                # 見出し
+                title = (
+                    f"{date_text}　"
+                    f"{item}"
+                )
+
+                # 科名
+                if family:
+                    title += (
+                        f"　{family}"
+                    )
+
+                # 区画
+                if block:
+                    title += (
+                        f"　区画:{block}"
+                    )
+
+                st.markdown(
+                    f"### {title}"
+                )
+
+                # Tag ＋ 畝状態を表示
+                status_parts = []
+
+                if tags:
+                    status_parts.append(
+                        " / ".join(tags)
+                    )
+
+                if bed_status:
+                    status_parts.append(
+                        f"畝状態：{bed_status}"
+                    )
+
+                if status_parts:
+                    st.write(
+                        "　｜　".join(status_parts)
+                    )
+
+                # 写真
+                if os.path.exists(photo_path):
+
+                    img = Image.open(
+                        photo_path
+                    )
+
+                    st.image(
+                        img,
+                        caption=photo_name,
+                        width=500
+                    )
+
+                else:
+
+                    st.warning(
+                        f"写真が見つかりません: "
+                        f"{photo_path}"
+                    )
+
+                st.write("---")
 
 # ===== 各月の作業（作業カレンダー.xlsx から作る）ここから =====
 # 作業カレンダー（ヘッダーなし）

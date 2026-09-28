@@ -1,167 +1,287 @@
+# -*- coding: utf-8 -*-
+
+"""
+layout_view.py
+
+garden_current_status.py の判定結果を使って、
+指定日時点の畑のレイアウトを Streamlit に表示する。
+"""
+
+from datetime import date
+
 import streamlit as st
 import pandas as pd
-import calendar
-import plotly.graph_objects as go
-from pathlib import Path
 
-# =========================
-# 1. データ読み込み
-# =========================
-BASE_DIR = Path(__file__).resolve().parent
-ROOT_DIR = BASE_DIR.parent
-EXCEL_DIR = ROOT_DIR / "農作業関係Excel"
+from garden_current_status import (
+    load_garden_data,
+    load_crop_family_dict,
+    get_latest_item_by_bed,
+)
 
-PLAN_PATH = EXCEL_DIR / "作付計画.xlsx"
-LAYOUT_PATH = EXCEL_DIR / "Layout.xlsx"
 
-df_plan = pd.read_excel(PLAN_PATH)
-df_plan.columns = df_plan.columns.map(lambda x: str(x).strip())
-df_plan["開始日"] = pd.to_datetime(df_plan["開始日"], errors="coerce")
-df_plan["終了日"] = pd.to_datetime(df_plan["終了日"], errors="coerce")
-df_plan["畝"] = df_plan["畝"].astype(str)
+# ============================================================
+# 畑の物理レイアウト
+# garden_current_status.py と同じ配置
+# ============================================================
 
-df_layout = pd.read_excel(LAYOUT_PATH, sheet_name="レイアウト")
-df_layout.columns = df_layout.columns.map(lambda x: str(x).strip())
-df_layout["畝"] = df_layout["畝"].astype(str)
-df_layout["行"] = pd.to_numeric(df_layout["行"], errors="coerce")
-df_layout["列"] = pd.to_numeric(df_layout["列"], errors="coerce")
+GARDEN_LAYOUT = [
+    ("A01", "B01"),
+    ("A02", "B02"),
+    ("A03", "B03"),
+    ("A04", "B04"),
+    ("A05", "B05"),
+    ("A06", "B06"),
+    ("A07", "B07"),
+    ("A08", "B08"),
+    ("通路", "B09"),
+    ("A09", "B10"),
+    ("A10", "B11"),
+    ("A11", "B12"),
+    ("A12", "B13"),
+    ("A13", "B14"),
+    ("A14", "B15"),
+    ("A15", "B16"),
+    ("A16", "B17"),
+]
 
-# ★ 通路フラグ（無ければ False）
-if "通路" in df_layout.columns:
-    df_layout["通路"] = df_layout["通路"].fillna(0).astype(bool)
-else:
-    df_layout["通路"] = False
 
-# =========================
-# 2. 補助関数
-# =========================
-def get_period_range(year: int, month: int, part: str):
-    _, last_day = calendar.monthrange(year, month)
-    if part == "上旬":
-        start_day, end_day = 1, 10
-    elif part == "中旬":
-        start_day, end_day = 11, 20
-    else:
-        start_day, end_day = 21, last_day
-    return (
-        pd.Timestamp(year=year, month=month, day=start_day),
-        pd.Timestamp(year=year, month=month, day=end_day),
+# ============================================================
+# 表示用データ作成
+# ============================================================
+
+def make_layout_dataframe(latest_items):
+    """
+    garden_current_status.py の結果から
+    Streamlit表示用DataFrameを作る。
+    """
+
+    rows = []
+
+    for bed_a, bed_b in GARDEN_LAYOUT:
+
+        # A側
+        if bed_a == "通路":
+            item_a = ""
+        else:
+            info_a = latest_items.get(bed_a)
+            item_a = (
+                info_a["item"]
+                if info_a
+                else ""
+            )
+
+        # B側
+        if bed_b:
+            info_b = latest_items.get(bed_b)
+            item_b = (
+                info_b["item"]
+                if info_b
+                else ""
+            )
+        else:
+            item_b = ""
+
+        rows.append(
+            {
+                "畝番号A": bed_a,
+                "作物　作業A": item_a,
+                "通路": "",
+                "畝番号B": bed_b,
+                "作物　作業B": item_b,
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+# ============================================================
+# Streamlit画面
+# ============================================================
+
+def show_layout():
+    """
+    現在の畑レイアウト画面
+    """
+
+    st.title("畑の作付け状況")
+
+    # --------------------------------------------------------
+    # 日付指定
+    # --------------------------------------------------------
+
+    target_date = st.date_input(
+        "表示する日付",
+        value=date.today(),
+        format="YYYY/MM/DD",
     )
 
-def compute_bed_occupancy(df_plan: pd.DataFrame, df_layout: pd.DataFrame, year: int, month: int, part: str):
-    period_start, period_end = get_period_range(year, month, part)
-    dfp = df_plan.copy()
-    dfp = dfp.dropna(subset=["畝", "品目", "開始日", "終了日"])
-
-    occ_rows = []
-    for (bed, item), g in dfp.groupby(["畝", "品目"]):
-        g = g.sort_values("開始日")
-        work = g["作業"].astype(str)
-
-        mask_start = work.str.contains("畝つくり", na=False)
-        occ_start = g.loc[mask_start, "開始日"].min() if mask_start.any() else g["開始日"].min()
-
-        mask_end = work.str.contains("撤収", na=False)
-        occ_end = g.loc[mask_end, "終了日"].max() if mask_end.any() else g["終了日"].max()
-
-        occ_rows.append({"畝": str(bed), "品目": item, "占有開始": occ_start, "占有終了": occ_end})
-
-    df_occ_range = pd.DataFrame(occ_rows)
-
-    df_out = df_layout.copy()
-    if df_occ_range.empty:
-        df_out["占有中"] = False
-        df_out["品目一覧"] = ""
-        return df_out
-
-    df_occ_range["占有中"] = ~(
-        (df_occ_range["占有終了"] < period_start) |
-        (df_occ_range["占有開始"] > period_end)
+    st.caption(
+        "指定日以前で各畝の最も新しい記録を表示します。"
     )
 
-    df_items = (
-        df_occ_range[df_occ_range["占有中"]]
-        .groupby("畝")["品目"]
-        .apply(lambda x: "、".join(x))
-    )
-    occ_by_bed = df_occ_range.groupby("畝")["占有中"].any()
+    # --------------------------------------------------------
+    # データ読み込み
+    # --------------------------------------------------------
 
-    df_out["占有中"] = df_out["畝"].map(occ_by_bed).fillna(False)
-    df_out["品目一覧"] = df_out["畝"].map(df_items).fillna("")
-    return df_out
+    try:
+        df = load_garden_data()
 
-# =========================
-# 3. Streamlit UI
-# =========================
-st.title("畝の占有レイアウト（10日ごと）")
+    except Exception as e:
+        st.error(
+            f"vegetable_garden_location.xlsx "
+            f"の読み込みに失敗しました。\n\n{e}"
+        )
+        return
 
-years = sorted(int(y) for y in df_plan["開始日"].dt.year.dropna().unique())
-if not years:
-    st.error("作付計画.xlsx の「開始日」から年が取得できません。列名や日付が正しいか確認してください。")
-    st.write("df_plan columns:", df_plan.columns.tolist())
-    st.stop()
+    # --------------------------------------------------------
+    # 指定日時点の状態取得
+    # --------------------------------------------------------
 
-default_year = years[-1]
-year = st.selectbox("年を選択", years, index=years.index(default_year))
+    try:
+        # 作物名 → 科名
+        crop_family_dict = load_crop_family_dict()
 
-month = st.selectbox("月を選択", list(range(1, 13)), index=0)
-part = st.selectbox("期間を選択", ["上旬", "中旬", "下旬"])
+        latest_items = get_latest_item_by_bed(
+            df,
+            target_date,
+            crop_family_dict,
+        )
 
-df_out = compute_bed_occupancy(df_plan, df_layout, year, month, part)
+    except Exception as e:
+        st.error(
+            f"作付け状態の取得に失敗しました。\n\n{e}"
+        )
+        return
 
-st.write(f"表示対象: {year}年{month}月{part}")
+    # --------------------------------------------------------
+    # レイアウト作成
+    # --------------------------------------------------------
 
-# =========================
-# 4. プロット作成
-# =========================
-max_row = int(df_layout["行"].max())
-max_col = int(df_layout["列"].max())
-
-fig = go.Figure()
-
-for _, row in df_out.iterrows():
-    r = int(row["行"])
-    c = int(row["列"])
-    bed = row["畝"]
-    items = row["品目一覧"]
-    is_aisle = bool(row.get("通路", False))
-    occupied = bool(row["占有中"])
-
-    if is_aisle:
-        fill_color = "#666666"   # 濃い灰色（通路）
-    elif occupied:
-        fill_color = "#ffcccc"   # 占有中
-    else:
-        fill_color = "#ccffcc"   # 空き
-
-
-    fig.add_shape(
-        type="rect",
-        x0=c - 0.5, y0=r - 0.5,
-        x1=c + 0.5, y1=r + 0.5,
-        line=dict(color="black", width=1),
-        fillcolor=fill_color,
+    layout_df = make_layout_dataframe(
+        latest_items
     )
 
-    text = ""
-    if not is_aisle:
-        text = f"{bed}"
-        if items:
-            text += f"\n{items}"
+    st.subheader(
+        f"{target_date:%Y年%m月%d日} の作付け"
+    )
 
-    fig.add_trace(go.Scatter(
-        x=[c], y=[r],
-        text=[text],
-        mode="text",
-        textposition="middle center",
-        showlegend=False,
-    ))
+    # --------------------------------------------------------
+    # CSS
+    # --------------------------------------------------------
 
-fig.update_xaxes(range=[0.5, max_col + 0.5], dtick=1, title="列")
-fig.update_yaxes(range=[max_row + 0.5, 0.5], dtick=1, title="行")
-fig.update_layout(height=40 * max_row, margin=dict(l=40, r=40, t=40, b=40))
+    st.markdown(
+        """
+        <style>
 
-st.plotly_chart(fig, use_container_width=True)
-st.dataframe(df_out, use_container_width=True)
+        .garden-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 18px;
+        }
+
+        .garden-table th {
+            background-color: #d9ead3;
+            border: 1px solid #888;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .garden-table td {
+            border: 1px solid #aaa;
+            padding: 8px;
+            vertical-align: middle;
+        }
+
+        .garden-bed {
+            background-color: #fff2cc;
+            text-align: center;
+            font-weight: bold;
+            width: 10%;
+        }
+
+        .garden-item {
+            width: 32%;
+            font-size: 18px;
+        }
+
+        .garden-path {
+            background-color: #d9d9d9;
+            width: 7%;
+            text-align: center;
+        }
+
+        .garden-passage-row {
+            background-color: #d9d9d9;
+            font-weight: bold;
+            text-align: center;
+        }
+
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # HTMLテーブル
+    # --------------------------------------------------------
+
+    html = (
+        '<table class="garden-table">'
+        '<tr>'
+        '<th>畝番号A</th>'
+        '<th>作物　作業</th>'
+        '<th>通路</th>'
+        '<th>畝番号B</th>'
+        '<th>作物　作業</th>'
+        '</tr>'
+    )
+
+    for _, row in layout_df.iterrows():
+
+        bed_a = row["畝番号A"]
+        item_a = row["作物　作業A"]
+
+        bed_b = row["畝番号B"]
+        item_b = row["作物　作業B"]
+
+        # A側に横通路がある場所
+        if bed_a == "通路":
+
+            html += (
+                '<tr>'
+                '<td class="garden-passage-row">通路</td>'
+                '<td class="garden-passage-row"></td>'
+                '<td class="garden-path"></td>'
+                f'<td class="garden-bed">{bed_b}</td>'
+                f'<td class="garden-item">{item_b}</td>'
+                '</tr>'
+            )
+
+        else:
+
+            html += (
+                '<tr>'
+                f'<td class="garden-bed">{bed_a}</td>'
+                f'<td class="garden-item">{item_a}</td>'
+                '<td class="garden-path"></td>'
+                f'<td class="garden-bed">{bed_b}</td>'
+                f'<td class="garden-item">{item_b}</td>'
+                '</tr>'
+            )
+
+    html += '</table>'
+
+    st.markdown(
+        html,
+        unsafe_allow_html=True,
+    )
+
+
+# ============================================================
+# 単独実行時
+# ============================================================
+
+if __name__ == "__main__":
+    show_layout()
 
 

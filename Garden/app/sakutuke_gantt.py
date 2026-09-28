@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import os
 from pathlib import Path
 
 # =========================
@@ -8,12 +9,27 @@ from pathlib import Path
 # =========================
 st.set_page_config(page_title="作付ガント", layout="wide")
 
-BASE_DIR = Path(__file__).resolve().parent          # ...\農作業\Streamlit画面
-ROOT_DIR = BASE_DIR.parent                           # ...\農作業
-EXCEL_DIR = ROOT_DIR / "農作業関係Excel"             # ...\農作業\農作業関係Excel
+BASE_DIR = Path(__file__).resolve().parent
+
+# OneDrive
+ONEDRIVE = os.environ.get("OneDrive")
+
+if not ONEDRIVE:
+    raise RuntimeError("環境変数 OneDrive が見つかりません。")
+
+# 農作業データのルート
+ROOT_DIR = (
+    Path(ONEDRIVE)
+    / "ドキュメント"
+    / "PythonWork"
+    / "農作業"
+)
+
+# Excelファイルの保存場所
+EXCEL_DIR = ROOT_DIR / "農作業関係Excel"
 
 PLAN_PATH = EXCEL_DIR / "作付計画.xlsx"
-RULE_PATH = EXCEL_DIR / "畝配分.xlsx"               # 品目マスター / 作物グループ が入っている想定
+RULE_PATH = EXCEL_DIR / "畝配分.xlsx"
 
 RISK_PATH = EXCEL_DIR / "連作障害.xlsx"
 RISK_SHEET = "Crop_Performance"
