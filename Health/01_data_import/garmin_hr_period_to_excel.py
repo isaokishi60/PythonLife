@@ -20,7 +20,7 @@ try:
 except Exception:
     plt = None
 
-
+# files = list(out_dir.glob("HeartPeriod_*.xlsx"))
 # =========================
 # 1) Utils
 # =========================
@@ -494,6 +494,108 @@ def make_tachy_chart(df: pd.DataFrame, fig_path: Path) -> None:
     plt.savefig(fig_path, dpi=160)
     plt.close()
 
+def restore_historical_hr_data(df_current: pd.DataFrame, out_dir: Path) -> pd.DataFrame:
+    """
+    HeartPeriod_Master.xlsx を使って詳細心拍データを保存・復元する。
+
+    ・Masterに過去の良好な詳細心拍データを保持する
+    ・現在取得したデータの測定点数がMasterより多ければMasterを更新する
+    ・Masterの方が測定点数が多ければ現在データを復元する
+    """
+
+    master_path = out_dir / "HeartPeriod_Master.xlsx"
+
+    detail_cols = [
+        "最大心拍数",
+        "最小心拍数",
+        "1日総拍動数",
+        "頻脈時間(100bpm以上_分)",
+        "測定点数",
+    ]
+
+    current = df_current.copy()
+    current["日付"] = pd.to_datetime(current["日付"])
+
+    if not master_path.exists():
+        log_print("[WARN] HeartPeriod_Master.xlsx がありません。")
+        return current
+
+    try:
+        master = pd.read_excel(master_path)
+    except Exception as e:
+        log_print(f"[WARN] Master読込失敗: {e}")
+        return current
+
+    master["日付"] = pd.to_datetime(master["日付"])
+
+    current["測定点数"] = pd.to_numeric(
+        current["測定点数"], errors="coerce"
+    ).fillna(0)
+
+    master["測定点数"] = pd.to_numeric(
+        master["測定点数"], errors="coerce"
+    ).fillna(0)
+
+    # 日付を索引にする
+    current_idx = current.set_index("日付")
+    master_idx = master.set_index("日付")
+
+    restored_count = 0
+    updated_count = 0
+    added_count = 0
+
+    # 現在取得した期間について比較
+    for d in current_idx.index:
+
+        current_points = current_idx.at[d, "測定点数"]
+
+        # Masterにない新しい日付
+        if d not in master_idx.index:
+            master_idx.loc[d] = current_idx.loc[d]
+            added_count += 1
+            continue
+
+        master_points = master_idx.at[d, "測定点数"]
+
+        # Masterの方が完全なら現在データを復元
+        if master_points > current_points:
+            for col in detail_cols:
+                current_idx.at[d, col] = master_idx.at[d, col]
+
+            restored_count += 1
+
+        # 現在データの方が完全ならMasterを更新
+        elif current_points > master_points:
+            for col in detail_cols:
+                master_idx.at[d, col] = current_idx.at[d, col]
+
+            updated_count += 1
+
+    # Masterを日付順に保存
+    master = (
+        master_idx
+        .reset_index()
+        .sort_values("日付")
+        .reset_index(drop=True)
+    )
+
+    master.to_excel(master_path, index=False)
+
+    result = (
+        current_idx
+        .reset_index()
+        .sort_values("日付")
+        .reset_index(drop=True)
+    )
+
+    log_print(
+        f"[INFO] Master処理: 復元 {restored_count} 日 / "
+        f"更新 {updated_count} 日 / 新規 {added_count} 日"
+    )
+
+    return result
+
+
 # =========================
 # 6) 期間取得
 # =========================
@@ -530,6 +632,9 @@ def export_period(
         raise RuntimeError("取得できた日次データがありません。")
 
     df_daily = pd.DataFrame(rows).sort_values("日付").reset_index(drop=True)
+
+    # 過去に保存済みの詳細心拍データを復元
+    df_daily = restore_historical_hr_data(df_daily, out_dir)
 
     df_daily["1日総拍動数"] = pd.to_numeric(df_daily["1日総拍動数"], errors="coerce")
 
