@@ -12,6 +12,7 @@ BASE_DIR = Path.home() / "OneDrive" / "ドキュメント" / "PythonWork" / "Hea
 
 PERIOD_PNG_DIR = BASE_DIR / "01_Garmin_Import" / "outputs_period" / "png"
 NIGHT_PNG_DIR = BASE_DIR / "01_Garmin_Import" / "outputs" / "png"
+BISOPROLOL_PNG_DIR = BASE_DIR / "bisoprolol_report" / "png"
 
 OUT_PPTX = BASE_DIR / "心房細動グラフ.pptx"
 
@@ -90,6 +91,11 @@ slides = [
     ("RHR",        latest_file(PERIOD_PNG_DIR, "HeartPeriod_RHR_2025-10-01_*.png")),
     ("Tachy",      latest_file(PERIOD_PNG_DIR, "HeartPeriod_Tachy_2025-10-01_*.png")),
     ("NightHR",    latest_file(NIGHT_PNG_DIR, "RestHR_Night_*_21-06.png")),
+
+    ("Bisoprolol_RHR",        BISOPROLOL_PNG_DIR / "01_RHR.png"),
+    ("Bisoprolol_MAX_HR",     BISOPROLOL_PNG_DIR / "02_MAX_HR.png"),
+    ("Bisoprolol_DailyBeats", BISOPROLOL_PNG_DIR / "03_Daily_Beats.png"),
+    ("Bisoprolol_Tachy",      BISOPROLOL_PNG_DIR / "04_Tachy_100.png"),
 ]
 
 prs = Presentation()

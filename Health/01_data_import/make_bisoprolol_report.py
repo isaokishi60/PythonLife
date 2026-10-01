@@ -33,7 +33,6 @@ import statsmodels.api as sm
 plt.rcParams["font.family"] = "Yu Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
-# regression_df = pd.concat
 # ============================================================
 # 1. 設定
 # ============================================================
@@ -85,14 +84,20 @@ def parse_args():
 
     parser.add_argument(
         "--end-date",
-        required=True,
-        help="終了日 YYYY-MM-DD",
+        default=pd.Timestamp.today().strftime("%Y-%m-%d"),
+        help="終了日 YYYY-MM-DD（省略時=今日）",
     )
 
     parser.add_argument(
         "--stop-date",
         default="2026-08-28",
         help="ビソプロロール中止後1日目 YYYY-MM-DD",
+    )
+
+    parser.add_argument(
+        "--restart-date",
+        default="2026-09-30",
+        help="ビソプロロール服用再開日 YYYY-MM-DD",
     )
 
     return parser.parse_args()
@@ -104,18 +109,31 @@ def parse_args():
 
 def get_heart_period_path(start_date, end_date):
 
+    # まず従来どおり完全一致を探す
     filename = (
         f"HeartPeriod_{start_date}_{end_date}.xlsx"
     )
 
     path = HEART_PERIOD_DIR / filename
 
-    if not path.exists():
-        raise FileNotFoundError(
-            f"HeartPeriodファイルが見つかりません。\n{path}"
-        )
+    if path.exists():
+        return path
 
-    return path
+    # 完全一致がなければ、同じ終了日のHeartPeriodを探す
+    candidates = sorted(
+        HEART_PERIOD_DIR.glob(
+            f"HeartPeriod_*_{end_date}.xlsx"
+        )
+    )
+
+    if candidates:
+        return candidates[-1]
+
+    raise FileNotFoundError(
+        "HeartPeriodファイルが見つかりません。\n"
+        f"終了日: {end_date}\n"
+        f"検索先: {HEART_PERIOD_DIR}"
+    )
 
 
 # ============================================================
@@ -210,6 +228,7 @@ def merge_data(
     start_date,
     end_date,
     stop_date,
+    restart_date,
 ):
 
     df = pd.merge(
@@ -222,6 +241,7 @@ def merge_data(
     start_ts = pd.Timestamp(start_date)
     end_ts = pd.Timestamp(end_date)
     stop_ts = pd.Timestamp(stop_date)
+    restart_ts = pd.Timestamp(restart_date)
 
     df = df[
         (df["日付"] >= start_ts)
@@ -230,10 +250,16 @@ def merge_data(
 
     df = df.sort_values("日付")
 
-    df["服薬状態"] = np.where(
-        df["日付"] < stop_ts,
-        "服薬中",
-        "中止後",
+    df["服薬状態"] = np.select(
+        [
+            df["日付"] < stop_ts,
+            df["日付"] < restart_ts,
+        ],
+        [
+            "服薬中",
+            "中止中",
+        ],
+        default="服薬再開後",
     )
 
     # 活動時の心拍上昇幅
@@ -272,7 +298,7 @@ def create_summary(df):
         ].dropna()
 
         after = df.loc[
-            df["服薬状態"] == "中止後",
+            df["服薬状態"] == "中止中",
             metric,
         ].dropna()
 
@@ -316,7 +342,7 @@ def regression_stats(df, x_col, y_col):
 
     rows = []
 
-    for state in ["服薬中", "中止後"]:
+    for state in ["服薬中", "中止中"]:
 
         part = d[
             d["服薬状態"] == state
@@ -364,12 +390,18 @@ def adjusted_regression(df, x_col, y_col):
         ["服薬状態", x_col, y_col]
     ].dropna().copy()
 
+    # 「服薬中」と「中止中」だけを回帰分析対象にする
+    # 服薬再開後は、この中止前後比較から除外する
+    d = d[
+        d["服薬状態"].isin(["服薬中", "中止中"])
+    ].copy()
+
     if len(d) < 5:
         return pd.DataFrame()
 
-    # 中止後=1、服薬中=0
+    # 中止中=1、服薬中=0
     d["中止後"] = (
-        d["服薬状態"] == "中止後"
+        d["服薬状態"] == "中止中"
     ).astype(int)
 
     # -----------------------------
@@ -445,7 +477,7 @@ def adjusted_regression(df, x_col, y_col):
         )
 
     return pd.DataFrame(rows)
-
+# get_heart_period_path
 # ============================================================
 # 9. 時系列グラフ
 # ============================================================
@@ -453,6 +485,7 @@ def adjusted_regression(df, x_col, y_col):
 def plot_timeseries(
     df,
     stop_date,
+    restart_date,
     column,
     ylabel,
     filename,
@@ -474,6 +507,13 @@ def plot_timeseries(
         linestyle="--",
         linewidth=2,
         label="ビソプロロール中止後1日目",
+    )
+
+    ax.axvline(
+        pd.Timestamp(restart_date),
+        linestyle="--",
+        linewidth=2,
+        label="ビソプロロール服用再開",
     )
 
     ax.set_title(column)
@@ -507,7 +547,6 @@ def plot_timeseries(
 
     print(f"PNG保存: {path}")
 
-
 # ============================================================
 # 10. 散布図
 # ============================================================
@@ -530,10 +569,10 @@ def plot_scatter(
 
     markers = {
         "服薬中": "o",
-        "中止後": "^",
+        "中止中": "^",
     }
 
-    for state in ["服薬中", "中止後"]:
+    for state in ["服薬中", "中止中"]:
 
         part = work[
             work["服薬状態"] == state
@@ -659,7 +698,6 @@ def save_excel(
         f"Excel保存: {OUTPUT_EXCEL}"
     )
 
-
 # ============================================================
 # 12. main
 # ============================================================
@@ -707,6 +745,7 @@ def main():
         args.start_date,
         args.end_date,
         args.stop_date,
+        args.restart_date,
     )
 
     print(
@@ -721,8 +760,14 @@ def main():
     )
 
     print(
-        "中止後:",
-        (df["服薬状態"] == "中止後").sum(),
+        "中止中:",
+        (df["服薬状態"] == "中止中").sum(),
+        "日",
+    )
+
+    print(
+        "服薬再開後:",
+        (df["服薬状態"] == "服薬再開後").sum(),
         "日",
     )
 
@@ -802,6 +847,7 @@ def main():
     plot_timeseries(
         df,
         args.stop_date,
+        args.restart_date,
         "安静時心拍数",
         "bpm",
         "01_RHR.png",
@@ -810,6 +856,7 @@ def main():
     plot_timeseries(
         df,
         args.stop_date,
+        args.restart_date,
         "最大心拍数",
         "bpm",
         "02_MAX_HR.png",
@@ -818,6 +865,7 @@ def main():
     plot_timeseries(
         df,
         args.stop_date,
+        args.restart_date,
         "1日総拍動数",
         "拍/日",
         "03_Daily_Beats.png",
@@ -826,6 +874,7 @@ def main():
     plot_timeseries(
         df,
         args.stop_date,
+        args.restart_date,
         "頻脈時間(100bpm以上_分)",
         "分/日",
         "04_Tachy_100.png",

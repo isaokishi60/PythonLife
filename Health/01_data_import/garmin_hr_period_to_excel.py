@@ -279,6 +279,8 @@ EVENTS = [
     ("2026-02-16", "人間ドック", "darkorange", ":"),
     ("2026-03-19", "カルディオバージョン", "red", "--"),
     ("2026-05-22", "アブレーション", "darkorange", ":"),
+    ("2026-08-28", "ビソプロロール中止", "blue", "--"),
+    ("2026-09-30", "ビソプロロール再開", "green", "--"),
 ]
 
 def add_events(ax, y_pos):
@@ -292,10 +294,23 @@ def add_events(ax, y_pos):
             linewidth=2
         )
 
+        # イベントごとに文字の高さを調整
+        if label == "ビソプロロール中止":
+            text_y = y_pos * 1.03
+            arrow_y = y_pos * 0.92
+
+        elif label == "ビソプロロール再開":
+            text_y = y_pos * 0.97
+            arrow_y = y_pos * 0.88
+
+        else:
+            text_y = y_pos * 1.03
+            arrow_y = y_pos * 0.92
+
         ax.annotate(
             label,
-            xy=(x, y_pos * 0.92),
-            xytext=(x, y_pos * 1.03),
+            xy=(x, arrow_y),
+            xytext=(x, text_y),
             arrowprops=dict(arrowstyle="->"),
             ha="left"
         )
