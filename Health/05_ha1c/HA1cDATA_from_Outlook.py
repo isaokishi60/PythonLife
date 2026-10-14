@@ -25,7 +25,7 @@ select_items = []  # 指定した期間内の予定を入れるリスト
 
 # 予定を抜き出す期間
 start_date = datetime.date(2020, 1, 1)
-end_date = datetime.date(2026, 7, 31)
+end_date = datetime.date.today() + datetime.timedelta(days=1)
 
 
 # --------------------------------------------------
