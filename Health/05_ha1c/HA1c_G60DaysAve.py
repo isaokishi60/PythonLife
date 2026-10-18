@@ -26,7 +26,7 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.enum.text import PP_ALIGN
 
-
+# PREDICTION_START_DATE
 # ============================================================
 # 基本設定
 # ============================================================
@@ -877,12 +877,12 @@ wb.active = wb.sheetnames.index("Sheet2")
 wb.save(hba1c_path)
 
 print(f"Excel保存: {hba1c_path}")
-
+# END_DATE
 # ============================================================
 # データ表1.xlsx Sheet5 に日別HA1c予測値を保存
 # ============================================================
 
-PREDICTION_START_DATE = pd.Timestamp("2025-01-01")
+PREDICTION_START_DATE = pd.Timestamp("2022-01-01")
 
 prediction_rows = []
 
