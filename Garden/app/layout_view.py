@@ -173,22 +173,30 @@ def show_layout():
         """
         <style>
 
+        /* レイアウト画面だけ表示領域を広げ、B畝まで見えるようにする */
+        section.main .block-container {
+            max-width: 1500px;
+             width: 100%;
+        }
+
         .garden-table {
             width: 100%;
+            min-width: 0;
+            table-layout: fixed;
             border-collapse: collapse;
-            font-size: 18px;
+            font-size: 16px;
         }
 
         .garden-table th {
             background-color: #d9ead3;
             border: 1px solid #888;
-            padding: 8px;
+            padding: 6px;
             text-align: center;
         }
 
         .garden-table td {
             border: 1px solid #aaa;
-            padding: 8px;
+            padding: 6px;
             vertical-align: middle;
         }
 
@@ -196,18 +204,21 @@ def show_layout():
             background-color: #fff2cc;
             text-align: center;
             font-weight: bold;
-            width: 10%;
         }
 
         .garden-item {
-            width: 32%;
             font-size: 18px;
+            overflow-wrap: anywhere;
         }
 
         .garden-path {
             background-color: #d9d9d9;
-            width: 7%;
             text-align: center;
+        }
+
+        .garden-scroll {
+            width: 100%;
+            overflow-x: auto;
         }
 
         .garden-passage-row {
@@ -226,7 +237,10 @@ def show_layout():
     # --------------------------------------------------------
 
     html = (
-        '<table class="garden-table">'
+        '<div class="garden-scroll"><table class="garden-table">'
+        '<colgroup><col style="width:7%"><col style="width:39%">'
+        '<col style="width:8%"><col style="width:7%">'
+        '<col style="width:39%"></colgroup>'
         '<tr>'
         '<th>畝番号A</th>'
         '<th>作物　作業</th>'
@@ -269,7 +283,7 @@ def show_layout():
                 '</tr>'
             )
 
-    html += '</table>'
+    html += '</table></div>'
 
     st.markdown(
         html,

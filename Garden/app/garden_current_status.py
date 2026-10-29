@@ -257,14 +257,22 @@ def get_latest_item_by_bed(
         # その畝の最新日付
         latest_date = group["Date"].max()
 
-        # 最新日付の全レコード
-        latest_rows = group[
-            group["Date"] == latest_date
-        ].copy()
+        # 最新日付の全レコードを対象にする。
+        # 作物は複数種類を残し、作業だけは同日の最後の1件を採用する。
+        latest_rows = group[group["Date"] == latest_date].copy()
+        latest_rows = latest_rows.sort_values("_original_order")
 
-        latest_rows = latest_rows.sort_values(
-            "_original_order"
-        )
+        if "種別" in latest_rows.columns:
+            kind = latest_rows["種別"].fillna("").astype(str).str.strip()
+            crop_rows = latest_rows[kind == "作物"]
+            work_rows = latest_rows[kind == "作業"].tail(1)
+            other_rows = latest_rows[~kind.isin(["作物", "作業"])]
+            latest_rows = pd.concat([crop_rows, work_rows, other_rows]).sort_values(
+                "_original_order"
+            )
+        else:
+            # 旧データに「種別」がない場合は従来どおり全件を表示
+            pass
 
         display_items = []
 
@@ -327,47 +335,6 @@ def get_latest_item_by_bed(
         }
 
     return result
-
-    # --------------------------------------------------------
-    # 元データの行順を保持
-    #
-    # 同じ畝・同じ日付に複数レコードがある場合、
-    # Excel上で後に登録されているものを最新とする。
-    # --------------------------------------------------------
-
-    data["_original_order"] = range(len(data))
-
-    data = data.sort_values(
-        ["Date", "_original_order"]
-    )
-
-    # --------------------------------------------------------
-    # 各畝について最後の1件
-    # --------------------------------------------------------
-
-    latest = (
-        data
-        .groupby(
-            "畝",
-            sort=False,
-            as_index=False
-        )
-        .tail(1)
-    )
-
-    result = {}
-
-    for _, row in latest.iterrows():
-
-        bed = row["畝"]
-
-        result[bed] = {
-            "item": row["Name or Item"],
-            "date": row["Date"],
-        }
-
-    return result
-
 
 # ============================================================
 # Excel出力

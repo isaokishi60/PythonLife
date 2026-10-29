@@ -1,5 +1,7 @@
-
 import streamlit as st
+
+# ページ全体をワイド表示（Streamlit描画処理より前に設定）
+st.set_page_config(page_title="家庭菜園管理", layout="wide")
 import pandas as pd
 import os
 from PIL import Image
@@ -73,7 +75,7 @@ DATA_DIR = EXCEL_DIR
 df_photo = pd.read_excel(
     EXCEL_DIR / "vegetable_garden_location.xlsx"
 )
-
+# btn_cols = st.columns(6)
 # ============================================================
 # 作物マスター読み込み（科名取得用）
 # ============================================================
@@ -214,7 +216,7 @@ if st.button("空き畝ガントチャートを表示", key="btn_free_bed_gantt"
 # ==== 機能ボタン（薄い青・横一列） ====
 st.subheader("家庭菜園スタートメニュー")
 
-btn_cols = st.columns(6)
+btn_cols = st.columns(7)
 
 with btn_cols[0]:
     show_record = st.button("品目別記録を見る", key="btn_record")
@@ -235,6 +237,16 @@ with btn_cols[5]:
     show_bed_photos = st.button(
         "畝の写真を見る",
         key="btn_bed_photos"
+    )
+
+# ============================================================
+# 畝別連作障害確認ボタン（新規）
+# ============================================================
+
+with btn_cols[6]:
+    show_bed_rotation = st.button(
+        "畝の連作障害",
+        key="btn_bed_rotation"
     )
 
 
@@ -344,6 +356,11 @@ if show_record:
         (pd.to_datetime(df_photo["Date"]).dt.date >= selected_start_date) &
         (pd.to_datetime(df_photo["Date"]).dt.date <= selected_end_date)
     ]
+
+    # 品目別記録は新しい日付から表示する（同日は元データの順序を維持）
+    df_filtered = df_filtered.copy()
+    df_filtered["Date"] = pd.to_datetime(df_filtered["Date"], errors="coerce")
+    df_filtered = df_filtered.sort_values("Date", ascending=False, kind="stable")
 
     if df_filtered.empty:
         st.warning("データが見つかりませんでした。")
@@ -472,7 +489,7 @@ if show_crop:
         st.write(f"📆 推奨年数: {row['年数']}")
         st.write(f"📝 備考: {row['備考']}")
 
-
+# show_bed_photos =
 # ============================================================
 # 畝ごとの過去写真一覧
 # ============================================================
@@ -764,5 +781,123 @@ if show_month_tasks:
 
         st.caption(f"元データ: {calendar_path}")
 
+# ============================================================
+# 畝別連作障害確認
+# 第1段階：過去2年間の作付履歴を表示
+# ============================================================
 
+if show_bed_rotation:
+
+    if selected_bed is None:
+        st.warning(
+            "検索方法で「畝番号から見る」を選択してください。"
+        )
+
+    else:
+        st.subheader(
+            f"{selected_bed} の過去2年間の作付履歴"
+        )
+
+        # 基準日（今日）
+        target_date = pd.Timestamp.today().normalize()
+
+        # 2年前
+        start_date = target_date - pd.DateOffset(years=2)
+
+        # 作付履歴を取得
+        df_history = df_photo.copy()
+
+        # 日付をdatetimeに変換
+        df_history["Date"] = pd.to_datetime(
+            df_history["Date"],
+            errors="coerce"
+        )
+
+        # 畝番号と過去2年間で絞り込み
+        df_history = df_history[
+            (
+                df_history["畝"]
+                .astype(str)
+                .str.strip()
+                == selected_bed
+            )
+            &
+            (
+                df_history["Date"] >= start_date
+            )
+            &
+            (
+                df_history["Date"] <= target_date
+            )
+        ].copy()
+
+        # 作物名を取得
+        df_history["作物名"] = (
+            df_history["Name or Item"]
+            .fillna("")
+            .astype(str)
+            .str.strip()
+        )
+
+        # 作物名から科名を取得
+        df_history["科名"] = (
+            df_history["作物名"]
+            .map(crop_family_dict)
+        )
+
+        # 作物マスターに登録されている作物だけ抽出
+        df_history = df_history[
+            df_history["科名"].notna()
+        ].copy()
+
+        if df_history.empty:
+
+            st.info(
+                "過去2年間の作付記録はありません。"
+            )
+
+        else:
+
+            # 新しい順に並べる
+            df_history = df_history.sort_values(
+                "Date",
+                ascending=False
+            )
+
+            # 表示用データ
+            df_display = df_history[
+                [
+                    "Date",
+                    "作物名",
+                    "科名",
+                    "畝状態",
+                ]
+            ].copy()
+
+            df_display["Date"] = (
+                df_display["Date"]
+                .dt.strftime("%Y-%m-%d")
+            )
+
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # 過去2年間に栽培した科の一覧
+            families = sorted(
+                df_history["科名"]
+                .dropna()
+                .unique()
+                .tolist()
+            )
+
+            st.subheader(
+                "過去2年間に栽培した作物の科"
+            )
+
+            st.write(
+                "、".join(families)
+            )
 
