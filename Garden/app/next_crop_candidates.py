@@ -313,39 +313,197 @@ def load_rotation_master(path: Path) -> tuple[pd.DataFrame, str, str, str, str]:
 
 
 def load_history(path: Path):
+    """
+    vegetable_garden_location.xlsx の履歴を読み込む。
+
+    Date         : 記録日
+    Name or Item : 作物名または作業名
+    畝           : 畝番号
+    畝状態       : 使用開始・使用中・使用終了など
+
+    第1段階：
+    ・日付と畝状態を読み込む
+    ・使用終了の記録を撤収日として認識する
+    ・使用開始の記録を開始日として認識する
+    ・撤収日が不明な記録は未確定として残す
+    """
+
+    # ============================================================
+    # 1. Excelの読み込み
+    # ============================================================
+
     df, sheet = read_sheet_matching_columns(
         path,
-        [HISTORY_CROP_COLUMNS, REMOVAL_DATE_COLUMNS],
+        [
+            HISTORY_CROP_COLUMNS,
+            BED_COLUMNS,
+            ["Date"],
+            ["畝状態"],
+        ],
     )
-    crop_col = find_column(df, HISTORY_CROP_COLUMNS, required=True)
-    removal_col = find_column(df, REMOVAL_DATE_COLUMNS, required=True)
-    start_col = find_column(df, START_DATE_COLUMNS)
 
-    bed_col = find_column(df, BED_COLUMNS)
-    bed_ab_col = find_column(df, BED_AB_COLUMNS)
-    section_col = find_column(df, SECTION_COLUMNS)
+    crop_col = find_column(
+        df,
+        HISTORY_CROP_COLUMNS,
+        required=True
+    )
 
-    if not any([bed_col, bed_ab_col, section_col]):
-        raise KeyError(
-            "畝を識別できる列がありません。\n"
-            f"候補: {BED_COLUMNS + BED_AB_COLUMNS + SECTION_COLUMNS}\n"
-            f"実際の列: {list(df.columns)}"
-        )
+    bed_col = find_column(
+        df,
+        BED_COLUMNS,
+        required=True
+    )
+
+    date_col = find_column(
+        df,
+        ["Date"],
+        required=True
+    )
+
+    status_col = find_column(
+        df,
+        ["畝状態"],
+        required=True
+    )
 
     df = df.copy()
-    df["_作物"] = df[crop_col].map(normalize_text)
-    df["_撤収日"] = pd.to_datetime(df[removal_col], errors="coerce")
-    if start_col:
-        df["_開始日"] = pd.to_datetime(df[start_col], errors="coerce")
-    else:
-        df["_開始日"] = pd.NaT
 
-    df["_畝キー"] = df.apply(
-        lambda r: make_bed_key(r, bed_col, bed_ab_col, section_col), axis=1
+    # ============================================================
+    # 2. 作物名・畝番号・日付・畝状態
+    # ============================================================
+
+    df["_作物"] = df[crop_col].map(normalize_text)
+
+    df["_畝キー"] = df[bed_col].map(normalize_text)
+
+    df["_記録日"] = pd.to_datetime(
+        df[date_col],
+        errors="coerce"
     )
-    df = df[df["_畝キー"] != ""].copy()
+
+    df["_畝状態"] = df[status_col].map(normalize_text)
+
+    # 畝番号と日付がある記録だけを使用
+    df = df[
+        (df["_畝キー"] != "")
+        & df["_記録日"].notna()
+    ].copy()
+
+    # ============================================================
+    # 3. 使用開始日・撤収日の取得
+    # ============================================================
+
+    # 既存プログラムとの互換性を保つ列
+    df["_開始日"] = pd.NaT
+    df["_撤収日"] = pd.NaT
+
+    # 使用開始・占有開始
+    start_mask = df["_畝状態"].isin(
+        [
+            "使用開始",
+            "占有開始",
+        ]
+    )
+
+    df.loc[start_mask, "_開始日"] = (
+        df.loc[start_mask, "_記録日"]
+    )
+
+    # 使用終了・撤収
+    removal_mask = df["_畝状態"].isin(
+        [
+            "使用終了",
+            "撤収",
+            "撤収完了",
+        ]
+    )
+
+    df.loc[removal_mask, "_撤収日"] = (
+        df.loc[removal_mask, "_記録日"]
+    )
+
+    # ============================================================
+    # 4. 日付順に整理
+    # ============================================================
+
+    df = df.sort_values(
+        ["_畝キー", "_記録日"]
+    ).reset_index(drop=True)
+
+    # ============================================================
+    # 5. 読み込み結果を表示
+    # ============================================================
+
+    print()
+    print("=== 作付け履歴の読み込み ===")
+    print(f"使用シート       : {sheet}")
+    print(f"履歴件数         : {len(df)}")
+    print(f"畝数             : {df['_畝キー'].nunique()}")
+    print(f"使用開始記録数   : {start_mask.sum()}")
+    print(f"使用終了記録数   : {removal_mask.sum()}")
 
     return df, sheet
+
+# ============================================================
+# 作物別の履歴整理
+# ============================================================
+
+def summarize_crop_history(history: pd.DataFrame) -> pd.DataFrame:
+    """
+    畝番号・作物名ごとに履歴を整理する。
+
+    ・最初の記録日
+    ・最後の記録日
+    ・使用開始記録の最初の日付
+    ・使用終了記録の最後の日付
+    ・撤収日が確定しているか
+
+    を集計する。
+
+    注意：
+    同じ畝で同じ作物を複数回栽培した場合は、
+    今回は1行にまとめる。
+    """
+
+    df = history.copy()
+
+    # 作業記録を除外
+    if "種別" not in df.columns:
+        raise KeyError("履歴に「種別」列がありません。")
+
+    df = df[
+        df["種別"].map(normalize_text) == "作物"
+    ].copy()
+
+    # 作物名が空欄の記録を除外
+    df = df[df["_作物"] != ""].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    # 畝番号・作物名ごとに集計
+    summary = (
+        df.groupby(
+            ["_畝キー", "_作物"],
+            as_index=False
+        )
+        .agg(
+            最初の記録日=("_記録日", "min"),
+            最後の記録日=("_記録日", "max"),
+            使用開始日=("_開始日", "min"),
+            最終撤収日=("_撤収日", "max"),
+            記録件数=("_記録日", "count"),
+        )
+    )
+
+    # 撤収日が記録されているか
+    summary["撤収日状態"] = summary["最終撤収日"].apply(
+        lambda x: "確定" if pd.notna(x) else "未記録"
+    )
+
+    return summary.sort_values(
+        ["_畝キー", "最後の記録日"]
+    ).reset_index(drop=True)
 
 
 # ============================================================

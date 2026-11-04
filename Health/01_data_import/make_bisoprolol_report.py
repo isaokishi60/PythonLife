@@ -1,4 +1,4 @@
-# %%
+﻿# %%
 # make_bisoprolol_report.py
 #
 # ビソプロロール中止前後の心拍状態を比較する
@@ -491,13 +491,20 @@ def plot_timeseries(
     filename,
 ):
 
+    # 当日途中の値は、日単位の集計指標では表示しない。
+    # 安静時心拍数（RHR）は従来どおり当日も表示する。
+    if column in ["最大心拍数", "1日総拍動数", "頻脈時間(100bpm以上_分)"]:
+        plot_df = df.loc[df["日付"].dt.normalize() < pd.Timestamp.today().normalize()].copy()
+    else:
+        plot_df = df
+
     fig, ax = plt.subplots(
         figsize=(12, 5)
     )
 
     ax.plot(
-        df["日付"],
-        df[column],
+        plot_df["日付"],
+        plot_df[column],
         marker="o",
         linewidth=1.5,
     )
